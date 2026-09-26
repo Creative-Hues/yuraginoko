@@ -439,6 +439,22 @@ export function drawCreature(ctx, scratch, c, pts, L, t, pixelScale = 1, detail 
     ctx.fillRect(p.x - r, p.y - r, r * 2, r * 2);
   }
 
+  // 環境で変わる瞬間:体全体がふわっと光る(ふくらんで、ゆっくり消える)
+  if (c.shiftGlow > 0) {
+    const k = 1 - c.shiftGlow; // 0(光り始め)→ 1(消えた)
+    const a = Math.pow(Math.sin(Math.PI * k), 0.7) * 0.65;
+    ctx.fillStyle = `hsla(${H2}, 100%, 78%, ${a * 0.6})`;
+    ctx.fill(skirtPath);
+    const p = bodyPoint(spine, 0.5, -0.2);
+    const r = Ls * (0.45 + 0.25 * k);
+    const rg = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r);
+    rg.addColorStop(0, `hsla(${H2}, 100%, 85%, ${a * 0.7})`);
+    rg.addColorStop(0.6, `hsla(${H2}, 100%, 70%, ${a * 0.25})`);
+    rg.addColorStop(1, `hsla(${H2}, 100%, 65%, 0)`);
+    ctx.fillStyle = rg;
+    ctx.fillRect(p.x - r, p.y - r, r * 2, r * 2);
+  }
+
   // 突起の先がほのかに光る
   if (glowA > 0 && spikes.length) {
     ctx.fillStyle = `hsla(${H2}, 100%, 70%, ${0.6 * glowA})`;

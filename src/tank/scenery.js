@@ -1,7 +1,9 @@
-// 水槽の背景(水・岩・砂の底・小石)。水槽ごとの seed で決まる飾りで、保存も編集もしない。
-// フェーズ3で置物や環境の編集を作るときは、ここの色や配置を env から受け取る形にする。
-import { lerp } from '../util/math.js';
+// 水槽の背景(水・岩・底・小石)。配置は水槽ごとの seed で決まり、水の色と底の見た目は環境(env)で変わる。
+// 背景は環境が変わったときだけ描き直す。底の栄養と光る砂のまたたきは、毎フレーム drawSoilLive で重ねる。
+import { clamp, lerp } from '../util/math.js';
+import { wave } from '../util/noise.js';
 import { makeRng } from '../util/random.js';
+import { LIGHT_COLORS, NUTRIENT, SOILS } from './envConfig.js';
 
 const TAU = Math.PI * 2;
 const INK = '#0b0514';
@@ -26,22 +28,33 @@ function wavyEdge(ctx, W, H, y0, amp, phase) {
   ctx.closePath();
 }
 
-export function renderScenery(ctx, geo, seed) {
+// 環境の光 → 光の筋の色相と、明るさ(暗い 0〜1 / 明るい 0〜1)
+export function lightLook(env) {
+  const light = LIGHT_COLORS[env?.light?.color] ?? LIGHT_COLORS.usual;
+  const b = env?.light?.brightness ?? 0.5;
+  return { light, dark: clamp((0.5 - b) * 2), bright: clamp((b - 0.5) * 2) };
+}
+
+export function renderScenery(ctx, geo, seed, env) {
   const { W, H, floorBack } = geo;
   const rng = makeRng(seed);
+  const extra = makeRng((seed ^ 0x51a7e) >>> 0); // 土の種類ごとの飾り(いつもの配置の乱数を変えないように別にする)
+  const soil = SOILS[env?.soil] ?? SOILS.sand;
+  const { light, dark, bright } = lightLook(env);
 
-  // 水(濃い藍 → 青緑)
+  // 水(光の色で変わる。いつもの光:濃い藍 → 青緑)
   const water = ctx.createLinearGradient(0, 0, 0, floorBack + H * 0.05);
-  water.addColorStop(0, '#1a0848');
-  water.addColorStop(0.45, '#123a86');
-  water.addColorStop(1, '#0a6b73');
+  water.addColorStop(0, light.water[0]);
+  water.addColorStop(0.45, light.water[1]);
+  water.addColorStop(1, light.water[2]);
   ctx.fillStyle = water;
   ctx.fillRect(0, 0, W, H);
 
   // 底のあたりの、にじんだ明るさ
   const haze = ctx.createRadialGradient(W * 0.5, floorBack, 0, W * 0.5, floorBack, W * 0.6);
-  haze.addColorStop(0, 'rgba(60, 255, 210, 0.22)');
-  haze.addColorStop(1, 'rgba(60, 255, 210, 0)');
+  const hazeColor = light.hue == null ? '60, 255, 210' : null;
+  haze.addColorStop(0, hazeColor ? `rgba(${hazeColor}, 0.22)` : `hsla(${light.ray}, 100%, 60%, 0.22)`);
+  haze.addColorStop(1, hazeColor ? `rgba(${hazeColor}, 0)` : `hsla(${light.ray}, 100%, 60%, 0)`);
   ctx.fillStyle = haze;
   ctx.fillRect(0, 0, W, H);
 
@@ -85,18 +98,18 @@ export function renderScenery(ctx, geo, seed) {
     ctx.stroke();
   }
 
-  // 砂の底(ベタ塗りを3段)
+  // 底(ベタ塗りを3段。色は土の種類で変わる)
   wavyEdge(ctx, W, H, floorBack, H * 0.01, rng() * 10);
-  ctx.fillStyle = '#5a2170';
+  ctx.fillStyle = soil.floor[0];
   ctx.fill();
   ctx.strokeStyle = INK;
   ctx.lineWidth = 4;
   ctx.stroke();
   wavyEdge(ctx, W, H, lerp(floorBack, H, 0.4), H * 0.014, rng() * 10);
-  ctx.fillStyle = '#4a1a60';
+  ctx.fillStyle = soil.floor[1];
   ctx.fill();
   wavyEdge(ctx, W, H, lerp(floorBack, H, 0.78), H * 0.012, rng() * 10);
-  ctx.fillStyle = '#381250';
+  ctx.fillStyle = soil.floor[2];
   ctx.fill();
 
   // 風紋
@@ -109,7 +122,7 @@ export function renderScenery(ctx, geo, seed) {
     ctx.beginPath();
     ctx.moveTo(x - w / 2, y);
     ctx.quadraticCurveTo(x, y - lerp(2, 6, k), x + w / 2, y);
-    ctx.strokeStyle = 'rgba(150, 80, 190, 0.55)';
+    ctx.strokeStyle = soil.ripple;
     ctx.lineWidth = lerp(1, 2.5, k);
     ctx.stroke();
   }
@@ -119,7 +132,7 @@ export function renderScenery(ctx, geo, seed) {
     const k = rng();
     const y = lerp(floorBack + 4, H, k);
     const x = rng() * W;
-    ctx.fillStyle = rng() < 0.55 ? 'rgba(200, 140, 230, 0.55)' : 'rgba(15, 4, 30, 0.6)';
+    ctx.fillStyle = rng() < 0.55 ? soil.grains[0] : soil.grains[1];
     ctx.beginPath();
     ctx.arc(x, y, lerp(0.6, 2, k) * (0.6 + rng() * 0.6), 0, TAU);
     ctx.fill();
@@ -133,6 +146,14 @@ export function renderScenery(ctx, geo, seed) {
     r: 0.5 + rng(),
     c: colors[Math.floor(rng() * colors.length)],
   }));
+  // 泥:ひびのような筋
+  if (env?.soil === 'mud') drawMudCracks(ctx, geo, extra);
+  // 小石の土:小石がたくさん
+  if (env?.soil === 'pebble') {
+    for (let i = 0; i < 40; i++) {
+      pebbles.push({ x: extra(), z: extra(), r: 0.3 + extra() * 0.6, c: colors[Math.floor(extra() * colors.length)] });
+    }
+  }
   pebbles.sort((a, b) => b.z - a.z);
   for (const p of pebbles) {
     const pos = geo.project(p.x * 1.1 - 0.05, p.z);
@@ -152,6 +173,87 @@ export function renderScenery(ctx, geo, seed) {
     ctx.beginPath();
     ctx.arc(pos.x - r * 0.4, pos.floorY - r * 0.3, r * 0.2, 0, TAU);
     ctx.fill();
+  }
+
+  // 光の明るさ:暗いほど全体が沈み、明るいほど光の色が薄くかかる
+  if (dark > 0) {
+    ctx.fillStyle = `rgba(4, 0, 14, ${dark * 0.5})`;
+    ctx.fillRect(0, 0, W, H);
+  }
+  if (bright > 0) {
+    ctx.fillStyle = `hsla(${light.ray}, 90%, 80%, ${bright * 0.14})`;
+    ctx.fillRect(0, 0, W, H);
+  }
+}
+
+function drawMudCracks(ctx, geo, rng) {
+  const { W, H, floorBack } = geo;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  for (let i = 0; i < 14; i++) {
+    const k = rng();
+    let x = rng() * W;
+    let y = lerp(floorBack + 10, H - 6, k);
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    for (let s = 0; s < 4; s++) {
+      x += lerp(8, 26, k) * (rng() < 0.5 ? -1 : 1) * (0.5 + rng());
+      y += (rng() - 0.5) * lerp(3, 8, k);
+      ctx.lineTo(x, y);
+    }
+    ctx.strokeStyle = 'rgba(12, 3, 14, 0.6)';
+    ctx.lineWidth = lerp(1, 2.5, k);
+    ctx.stroke();
+  }
+}
+
+// 毎フレーム重ねる底の様子:栄養のある場所が少し濃くなる、光る砂がまたたく
+export function drawSoilLive(ctx, geo, env, nutrients, seed, t) {
+  if (nutrients) {
+    const { GRID_W: gw, GRID_H: gh, SHOW_MIN, DARKEN } = NUTRIENT;
+    for (let iz = 0; iz < gh; iz++) {
+      for (let ix = 0; ix < gw; ix++) {
+        const v = nutrients.cells[iz * gw + ix];
+        if (v < SHOW_MIN) continue;
+        const z = (iz + 0.5) / gh;
+        const pos = geo.project((ix + 0.5) / gw, z);
+        const cellW = ((geo.right - geo.left) * lerp(0.9, 0.62, z)) / gw;
+        const rx = cellW * 0.75;
+        const ry = rx * lerp(0.4, 0.3, z);
+        ctx.fillStyle = `rgba(20, 4, 24, ${v * DARKEN * 0.5})`;
+        ctx.beginPath();
+        ctx.ellipse(pos.x, pos.floorY, rx, ry, 0, 0, TAU);
+        ctx.fill();
+        // 真ん中ほど濃く
+        ctx.beginPath();
+        ctx.ellipse(pos.x, pos.floorY, rx * 0.6, ry * 0.6, 0, 0, TAU);
+        ctx.fill();
+      }
+    }
+  }
+  const sparkle = SOILS[env?.soil]?.sparkle;
+  if (sparkle) {
+    const rng = makeRng((seed ^ 0x6a11) >>> 0);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < 46; i++) {
+      const x = rng();
+      const z = rng();
+      const c = sparkle[i % sparkle.length];
+      const a = wave(t / 4 + rng() * 10, i * 1.7);
+      if (a <= 0.15) continue;
+      const pos = geo.project(x * 1.1 - 0.05, z);
+      const r = lerp(2.4, 1, z) * (0.7 + a * 0.5);
+      ctx.fillStyle = `rgba(${c}, ${a * 0.7})`;
+      ctx.beginPath();
+      ctx.arc(pos.x, pos.floorY, r, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = `rgba(${c}, ${a * 0.18})`;
+      ctx.beginPath();
+      ctx.arc(pos.x, pos.floorY, r * 3, 0, TAU);
+      ctx.fill();
+    }
+    ctx.restore();
   }
 }
 

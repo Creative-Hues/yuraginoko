@@ -1,6 +1,8 @@
 // 水の中の小さな動き:ただよう粒、上っていく泡、触れた場所の波紋。
+// 粒と泡は、水流(current: { strength, dir })の向きへ流れる。
 import { lerp } from '../util/math.js';
 import { wave } from '../util/noise.js';
+import { CURRENT_LOOK } from './envConfig.js';
 
 const TAU = Math.PI * 2;
 
@@ -17,12 +19,18 @@ export class Particles {
     }));
   }
 
-  update(dt) {
+  update(dt, current) {
+    const flow = current ? current.dir * current.strength * CURRENT_LOOK.PARTICLE_SPEED : 0;
     for (const p of this.list) {
       p.y += 0.012 * p.s * dt;
       if (p.y > 1) {
         p.y = 0;
         p.x = Math.random();
+      }
+      // 奥の粒ほどゆっくり流れる(はみ出したら反対側から)
+      if (flow) {
+        p.x += flow * lerp(1, 0.5, p.z) * p.s * dt;
+        p.x -= Math.floor(p.x);
       }
     }
   }
@@ -66,7 +74,8 @@ export class Bubbles {
     }
   }
 
-  update(dt, geo) {
+  update(dt, geo, current) {
+    const flow = current ? current.dir * current.strength * CURRENT_LOOK.BUBBLE_SPEED : 0;
     // ときどき、底のどこかから泡の列が上がる
     this.nextSpawn -= dt;
     if (this.nextSpawn <= 0) {
@@ -84,6 +93,7 @@ export class Bubbles {
         continue;
       }
       b.y -= b.vy * dt;
+      b.x += flow * dt;
       b.vy = Math.min(b.vy + 20 * dt, 90);
       b.p += dt * 4;
       if (b.y < geo.surfaceY + b.r) b.pop = 0.001;
@@ -149,5 +159,68 @@ export class Ripples {
         ctx.stroke();
       }
     }
+  }
+}
+
+// 光の粒。環境で生き物が変わる瞬間に、体からふわっと昇る
+export class Sparkles {
+  constructor() {
+    this.list = [];
+  }
+
+  clear() {
+    this.list = [];
+  }
+
+  // hue: 色相(度)、size: 大きさの倍率(奥ほど小さく)
+  add(x, y, count, hue, size = 1) {
+    for (let i = 0; i < count; i++) {
+      this.list.push({
+        x: x + (Math.random() - 0.5) * 50 * size,
+        y: y + (Math.random() - 0.5) * 16 * size,
+        vx: (Math.random() - 0.5) * 10,
+        vy: -(18 + Math.random() * 18) * size,
+        r: (2.2 + Math.random() * 1.8) * size,
+        hue,
+        age: -i * 0.09,
+        life: 1.3 + Math.random() * 0.5,
+      });
+    }
+  }
+
+  update(dt) {
+    for (const s of this.list) {
+      s.age += dt;
+      if (s.age < 0) continue;
+      s.x += s.vx * dt;
+      s.y += s.vy * dt;
+    }
+    if (this.list.some((s) => s.age > s.life)) this.list = this.list.filter((s) => s.age <= s.life);
+  }
+
+  draw(ctx) {
+    if (!this.list.length) return;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (const s of this.list) {
+      if (s.age < 0) continue;
+      const k = s.age / s.life;
+      const a = Math.sin(Math.PI * Math.min(1, k * 1.4)) * (1 - k * 0.3);
+      const r = s.r * (1 - k * 0.4);
+      // 4つの角の光(十字の星)
+      ctx.fillStyle = `hsla(${s.hue}, 100%, 82%, ${a * 0.9})`;
+      ctx.beginPath();
+      ctx.moveTo(s.x, s.y - r * 2);
+      ctx.quadraticCurveTo(s.x, s.y, s.x + r * 2, s.y);
+      ctx.quadraticCurveTo(s.x, s.y, s.x, s.y + r * 2);
+      ctx.quadraticCurveTo(s.x, s.y, s.x - r * 2, s.y);
+      ctx.quadraticCurveTo(s.x, s.y, s.x, s.y - r * 2);
+      ctx.fill();
+      ctx.fillStyle = `hsla(${s.hue}, 100%, 70%, ${a * 0.25})`;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, r * 2.4, 0, TAU);
+      ctx.fill();
+    }
+    ctx.restore();
   }
 }

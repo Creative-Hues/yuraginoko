@@ -4,6 +4,8 @@
 // 排泄の粒は順番に見せる:
 //   しっぽの先から1粒ずつ押し出される(EMERGE)→ 砂の上で少し光る(SHINE)
 //   → しばらく置かれたまま → 平たく広がりながら、ゆっくり溶けて消える(MELT)
+// 溶けきった粒は takeMelted() で受け取れる(土の栄養と、芽が出るかの判定に使う)。
+// 1回の排泄で出た粒は batch でつながっていて、batch.left が 0 になったら、その排泄の粒はすべて溶けた
 import { FOODS } from '../creature/genes.js';
 import { DEPTH_SPAN } from '../creature/body.js';
 import { clamp, lerp, smoothstep } from '../util/math.js';
@@ -34,7 +36,8 @@ function rgb(hex) {
 export class FoodBits {
   constructor() {
     this.pellets = []; // { creature, food, x, z, fall(0〜1), eat(0〜1 または -1) }
-    this.droppings = []; // { x0, z0(しっぽの先), x, z(落ちる場所), r, food, age }
+    this.droppings = []; // { x0, z0(しっぽの先), x, z(落ちる場所), r, food, age, batch }
+    this.melted = []; // 溶けきった粒(受け取られるまで)
   }
 
   drop(creature, food, x, z) {
@@ -58,6 +61,7 @@ export class FoodBits {
   // 排泄:しっぽの先 (x, z) から、向き (dx, dz) へ粒を押し出す。粒は食べたエサの色
   leave({ x, z, dx, dz, food }) {
     const n = 2 + Math.floor(Math.random() * 3);
+    const batch = { food, left: n };
     for (let i = 0; i < n; i++) {
       const push = DROPPING.PUSH * (1 + i * 0.7) * (0.8 + Math.random() * 0.4);
       this.droppings.push({
@@ -68,6 +72,7 @@ export class FoodBits {
         r: 0.8 + Math.random() * 0.4,
         food,
         age: -(DROPPING.FIRST_DELAY + i * DROPPING.EACH_DELAY),
+        batch,
       });
     }
   }
@@ -85,14 +90,27 @@ export class FoodBits {
     if (finished.length) this.pellets = this.pellets.filter((p) => !finished.includes(p));
     for (const d of this.droppings) d.age += dt;
     if (this.droppings.some((d) => d.age > DROPPING_LIFE)) {
+      for (const d of this.droppings) {
+        if (d.age <= DROPPING_LIFE) continue;
+        d.batch.left--;
+        this.melted.push(d);
+      }
       this.droppings = this.droppings.filter((d) => d.age <= DROPPING_LIFE);
     }
     return finished;
   }
 
+  // 溶けきった粒を受け取る(受け取ったぶんは消える)
+  takeMelted() {
+    const list = this.melted;
+    this.melted = [];
+    return list;
+  }
+
   clear() {
     this.pellets = [];
     this.droppings = [];
+    this.melted = [];
   }
 
   // 排泄の粒。emerging = true のときは、しっぽから出ている途中の粒だけ(生き物より手前に描く)、

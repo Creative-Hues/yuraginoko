@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import { afterEach, describe, expect, it } from 'vitest';
 import { addPersona, closeDB, listPersonas, loadTank, saveTank } from '../src/storage/db.js';
-import { Tank } from '../src/tank/tank.js';
+import { TANK_DATA_VERSION, Tank } from '../src/tank/tank.js';
 
 afterEach(async () => {
   await closeDB();
@@ -83,7 +83,7 @@ describe('フェーズ2の保存', () => {
     expect(tank.creatures.map((c) => c.toJSON())).toEqual(before);
     expect(tank.creatures).toHaveLength(2);
     const saved = tank.toData();
-    expect(saved.version).toBe(2);
+    expect(saved.version).toBe(TANK_DATA_VERSION);
     expect(saved.things.algae.cells).toHaveLength(48 * 27);
   });
 
@@ -95,7 +95,7 @@ describe('フェーズ2の保存', () => {
     expect(a.algae.level).toBeGreaterThan(b.algae.level);
   });
 
-  it('エサ → 消化 → 排泄 で基本の色が 0.03 動いて保存され、休みに入る', async () => {
+  it('エサ → 消化 → 排泄 で基本の色が 0.08 動いて保存され、休みに入る', async () => {
     const p = await addPersona('テスト');
     const tank = Tank.createNew(p.id);
     const c = tank.creatures[0];
@@ -109,7 +109,7 @@ describe('フェーズ2の保存', () => {
     c.digest();
     for (let i = 0; i < 60 * 5; i++) tank.update(1 / 60, i / 60);
     expect(c.meal.stage).toBe(MEAL.digested);
-    expect(c.genes.hue).toBeCloseTo(0.53, 6);
+    expect(c.genes.hue).toBeCloseTo(0.58, 6);
     expect(tank.excrete(c)).toBe(true);
     expect(c.meal.stage).toBe(MEAL.resting);
     expect(tank.food.droppings.length).toBeGreaterThan(0);
@@ -127,7 +127,7 @@ describe('フェーズ2の保存', () => {
     await saveTank(tank.toData());
     const loaded = Tank.fromData(await loadTank(p.id));
     const lc = loaded.creatures[0];
-    expect(lc.genes.hue).toBeCloseTo(0.53, 6);
+    expect(lc.genes.hue).toBeCloseTo(0.58, 6);
     expect(lc.meal.stage).toBe(MEAL.resting);
     expect(lc.restProgress()).toBeLessThan(0.1);
     lc.refreshMeal(Date.now() + 61_000);

@@ -101,6 +101,127 @@ body {
   outline-offset: 3px;
 }
 
+/* 右上の、環境編集のボタン */
+.corner-btn.top {
+  top: calc(var(--safe-top) + 10px);
+  bottom: auto;
+}
+
+/* 環境編集の帯(画面の上。底の砂をタップしやすいように) */
+#edit-ui[hidden],
+#edit-ui [hidden] {
+  display: none;
+}
+.edit-bar {
+  position: fixed;
+  top: calc(var(--safe-top) + 8px);
+  left: calc(var(--safe-left) + 12px);
+  right: calc(var(--safe-right) + 84px);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.edit-tabs {
+  display: flex;
+  gap: 6px;
+}
+.edit-tab {
+  min-height: 34px;
+  padding: 3px 14px;
+  border: 3px solid var(--ink);
+  border-radius: 999px;
+  background: rgba(43, 24, 70, 0.85);
+  color: var(--paper);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  box-shadow: 2px 2px 0 var(--ink);
+}
+.edit-tab[aria-pressed='true'] {
+  background: var(--lime);
+  color: var(--ink);
+}
+.edit-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  max-width: 100%;
+  padding: 6px 8px;
+  border: 3px solid var(--ink);
+  border-radius: 16px;
+  background: rgba(43, 24, 70, 0.78);
+  box-shadow: 3px 3px 0 var(--ink);
+}
+.chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 4px 12px;
+  border: 3px solid var(--ink);
+  border-radius: 999px;
+  background: rgba(244, 236, 255, 0.9);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  white-space: nowrap;
+  box-shadow: 2px 2px 0 var(--ink);
+}
+.chip[aria-pressed='true'] {
+  background: var(--lime);
+  outline: 3px dashed var(--paper);
+  outline-offset: 2px;
+}
+.chip:disabled {
+  opacity: 0.45;
+}
+.chip:active:not(:disabled) {
+  transform: translate(2px, 2px);
+  box-shadow: none;
+}
+.chip.remove {
+  background: #ffd2ee;
+}
+.color-dot {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 3px solid var(--ink);
+  border-radius: 50%;
+  box-shadow: 2px 2px 0 var(--ink);
+}
+.color-dot[aria-pressed='true'] {
+  outline: 3px dashed var(--paper);
+  outline-offset: 3px;
+}
+.edit-note {
+  padding: 0 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #d9ccef;
+  white-space: nowrap;
+}
+.edit-slider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 6px;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--paper);
+  white-space: nowrap;
+}
+.edit-range {
+  width: 150px;
+  height: 36px;
+  margin: 0;
+  accent-color: var(--lime);
+  touch-action: none;
+}
+
 /* 観察モードのボタン */
 #observe-ui[hidden],
 #observe-ui [hidden] {

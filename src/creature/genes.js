@@ -58,7 +58,7 @@ export const FOODS = {
 };
 export const FOOD_KEYS = Object.keys(FOODS);
 
-export const DIGEST_STEP = 0.03; // 1回の消化で、基本値が動く量
+export const DIGEST_STEP = 0.08; // 1回の消化で、基本値が動く量
 export const DIGEST_SECONDS = 4; // 消化で色が変わりきるまで(秒)
 export const MEAL_REST_SECONDS = 60; // エサ → 消化 → 排泄 の1周のあと、休む時間(秒)
 

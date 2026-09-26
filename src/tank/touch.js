@@ -4,6 +4,7 @@
 // - 長押し:生き物の上で、指を動かさずに約0.5秒 → 観察モード
 // - ピンチ:2本の指を広げる → 観察モード、閉じる → 水槽に戻る
 // - 掃除モード(cleanMode):擦った場所の藻が消える。生き物は反応しない
+// - 環境編集モード(editMode):植物を植える・動かす・選ぶ。生き物は反応しない
 //
 // setMode で操作の中身を差し替える。
 // 指の位置は、画面上の位置 (sx, sy) と、水槽の座標 (x, y)(観察モードの拡大を戻したもの)の両方を持つ。
@@ -82,6 +83,34 @@ export const cleanMode = {
     }
   },
   up() {},
+};
+
+// 環境編集モード:植物を触る → 選んで、そのままドラッグで動かす。砂の上をタップ → 植える(選んでいる種類があれば)。
+// 生き物には何も伝えない(撫でる・弾く・長押しは起きない)
+export const editMode = {
+  down(st, env) {
+    const { renderer, handlers } = env;
+    st.plant = renderer.plantAt(st.x, st.y);
+    renderer.addRipple(st.x, st.y, 0.5);
+    if (st.plant) {
+      // 指と根元のずれ(つかんだ場所がそのままついてくるように)
+      const base = renderer.project(st.plant.x, st.plant.z);
+      st.grab = { dx: base.x - st.x, dy: base.floorY - st.y };
+      handlers.onPlantPick?.(st.plant);
+    }
+  },
+  move(st, env) {
+    if (!st.plant || st.moved <= FLICK_MOVE) return;
+    env.handlers.onPlantDrag?.(st.plant, st.x + st.grab.dx, st.y + st.grab.dy);
+  },
+  up(st, cancelled, env) {
+    if (cancelled) return;
+    if (st.plant) {
+      if (st.moved > FLICK_MOVE) env.handlers.onPlantDrop?.(st.plant);
+      return;
+    }
+    if (st.moved <= FLICK_MOVE * 2) env.handlers.onFloorTap?.(st.x, st.y);
+  },
 };
 
 export function createTouchController(canvas, renderer, handlers = {}) {

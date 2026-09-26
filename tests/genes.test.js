@@ -98,14 +98,14 @@ describe('エサ', () => {
   });
 
   it('色のエサは、目標の色へ近いほうの回り方で寄せる', () => {
-    // 色相 0.95 から赤(0)へは、+方向(0 をまたぐ)のほうが近い
-    expect(foodDrift({ hue: 0.95, glow: 0 }, 'red').hue).toBeCloseTo(DIGEST_STEP);
+    // 色相 0.9 から赤(0)へは、+方向(0 をまたぐ)のほうが近い
+    expect(foodDrift({ hue: 0.9, glow: 0 }, 'red').hue).toBeCloseTo(DIGEST_STEP);
     expect(foodDrift({ hue: 0.1, glow: 0 }, 'red').hue).toBeCloseTo(-DIGEST_STEP);
     // ほとんど着いていれば、その差だけ
     expect(foodDrift({ hue: 0.61, glow: 0 }, 'blue').hue).toBeCloseTo(0.01);
     const g = { ...randomGenes(makeRng(1)), hue: 0.99 };
-    nudgeGenes(g, foodDrift(g, 'yellow')); // 0.99 → 0.16 は +方向。1 をまたいで 0.02 に
-    expect(g.hue).toBeCloseTo(0.02);
+    nudgeGenes(g, foodDrift(g, 'yellow')); // 0.99 → 0.16 は +方向。1 をまたいで 0.07 に
+    expect(g.hue).toBeCloseTo(0.07);
   });
 
   it('光るエサは光り方を強くし、1を超えない', () => {

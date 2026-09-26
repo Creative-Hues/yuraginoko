@@ -80,6 +80,9 @@ export class Creature {
       shrinkVel: 0,
       cringe: 0, // 体のすくみ
     };
+    this.shift = null; // 環境で変わっている途中 { drift, progress, seconds }
+    this.shiftGlow = 0; // 変わる瞬間の、体の光(1 → 0)
+    this.shiftGlowSeconds = 1;
     this.screen = null; // 描画時に画面上の体の形が入る(当たり判定用)
     this.canvas = null; // 描画用の下書きキャンバス
     this.scratch = null;
@@ -104,6 +107,7 @@ export class Creature {
     updateBehavior(this, this.expressed, dt);
     if (!(this.behavior.pause > 0)) updateBody(this.body, this.heading, dt); // 止まっている間は、体の形もそのまま
     this.updateDigest(dt);
+    this.updateShift(dt);
 
     const tc = this.touch;
     tc.sinceStroke += dt;
@@ -144,6 +148,36 @@ export class Creature {
     tc.shrinkVel = 0;
     tc.cringe = 1;
     if (applyTouchDrift(this.genes, 'flick')) this.onChange?.();
+  }
+
+  // ---- 環境による変化 ----
+
+  // 遺伝子を drift だけ、seconds 秒かけて変える。体は glowSeconds 秒ふわっと光る
+  shiftGenes(drift, seconds, glowSeconds) {
+    this.finishShift();
+    this.shift = { drift, progress: 0, seconds };
+    this.shiftGlow = 1;
+    this.shiftGlowSeconds = glowSeconds;
+    this.onChange?.();
+  }
+
+  // 変わっている途中なら、残りをすぐに変えきる
+  finishShift() {
+    const s = this.shift;
+    if (!s) return;
+    nudgeGenes(this.genes, s.drift, 1 - s.progress);
+    this.shift = null;
+  }
+
+  updateShift(dt) {
+    this.shiftGlow = Math.max(0, this.shiftGlow - dt / this.shiftGlowSeconds);
+    const s = this.shift;
+    if (!s) return;
+    const next = Math.min(1, s.progress + dt / s.seconds);
+    nudgeGenes(this.genes, s.drift, next - s.progress);
+    s.progress = next;
+    if (next >= 1) this.shift = null;
+    this.onChange?.();
   }
 
   // ---- 食事 ----
@@ -213,11 +247,18 @@ export class Creature {
     return { x: tail.x, z: tail.z, dx: (tail.x - before.x) / len, dz: (tail.z - before.z) / len, food };
   }
 
+  // 保存する遺伝子(変わっている途中なら、変わりきったあとの値)
+  savedGenes() {
+    const genes = { ...this.genes };
+    if (this.shift) nudgeGenes(genes, this.shift.drift, 1 - this.shift.progress);
+    return genes;
+  }
+
   toJSON() {
     return {
       id: this.id,
       seed: this.seed,
-      genes: { ...this.genes },
+      genes: this.savedGenes(),
       x: this.x,
       z: this.z,
       heading: this.heading,

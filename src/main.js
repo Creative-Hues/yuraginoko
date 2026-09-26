@@ -2,11 +2,12 @@ import './style.css';
 import { addPersona, listPersonas, loadTank, markOpened, saveTank } from './storage/db.js';
 import { Tank } from './tank/tank.js';
 import { TankRenderer } from './tank/renderer.js';
-import { cleanMode, createTouchController, interactMode } from './tank/touch.js';
+import { cleanMode, createTouchController, editMode, interactMode } from './tank/touch.js';
 import { ALGAE } from './tank/algae.js';
 import { renderWhoScreen } from './ui/whoScreen.js';
 import { renderTankList } from './ui/tankList.js';
 import { createObserveUi } from './ui/observeUi.js';
+import { createEditUi } from './ui/editUi.js';
 import { showError, watchErrors } from './ui/errorBox.js';
 
 watchErrors();
@@ -25,6 +26,7 @@ const canvas = document.getElementById('tank');
 const overlay = document.getElementById('overlay');
 const tankButton = document.getElementById('tank-button');
 const cleanButton = document.getElementById('clean-button');
+const editButton = document.getElementById('edit-button');
 
 const renderer = new TankRenderer(canvas);
 renderer.onError = (err) => showError(err, '描画');
@@ -33,16 +35,27 @@ renderer.onError = (err) => showError(err, '描画');
 let current = null;
 let cleaning = false;
 let observing = null; // 観察中の生き物
+let editing = false; // 環境編集モード
+let plantKind = null; // 編集モードで、植えるために選んでいる種類
+let selectedPlant = null; // 編集モードで、選んでいる植物
 
 const touch = createTouchController(canvas, renderer, {
   onLongPress: (creature) => enterObserve(creature),
   onPinchOpen: (x, y) => {
-    if (observing) return;
+    if (observing || editing) return;
     const creature = renderer.creatureNear(x, y);
     if (creature) enterObserve(creature);
   },
   onPinchClose: () => exitObserve(),
   onScrub: scrub,
+  // 環境編集モード
+  onPlantPick: (plant) => selectPlant(plant),
+  onPlantDrag: (plant, x, y) => {
+    const at = renderer.unproject(x, y);
+    if (at && current) current.tank.movePlant(plant, at.x, at.z);
+  },
+  onPlantDrop: () => syncUi(),
+  onFloorTap: (x, y) => plantAt(x, y),
 });
 
 const observeUi = createObserveUi(document.getElementById('observe-ui'), {
@@ -88,6 +101,7 @@ async function openPersona(persona) {
   await attempt('モードを戻す', () => {
     exitObserve();
     setCleaning(false);
+    setEditing(false);
   });
   await saveCurrent();
 
@@ -116,6 +130,7 @@ async function openPersona(persona) {
 
 // ---- 掃除モード ----
 function setCleaning(on) {
+  if (on && editing) setEditing(false);
   cleaning = on;
   touch.setMode(on ? cleanMode : interactMode);
   cleanButton.setAttribute('aria-pressed', String(on));
@@ -139,10 +154,72 @@ function scrub(sx, sy, dist) {
 
 cleanButton.addEventListener('click', () => setCleaning(!cleaning));
 
+// ---- 環境編集モード ----
+function setEditing(on) {
+  if (on && cleaning) setCleaning(false);
+  editing = on;
+  plantKind = null;
+  selectPlant(null);
+  touch.setMode(on ? editMode : interactMode);
+  editButton.setAttribute('aria-pressed', String(on));
+  if (on) editUi.show();
+  else editUi.hide();
+  syncUi();
+}
+
+function selectPlant(plant) {
+  selectedPlant = plant;
+  renderer.selectedPlant = plant;
+  syncUi();
+}
+
+// 砂の上をタップ:選んでいる種類があれば植える。なければ、選んでいる植物を外す
+function plantAt(x, y) {
+  const tank = current?.tank;
+  if (!tank) return;
+  const at = renderer.unproject(x, y);
+  const p = plantKind && at ? tank.plant(plantKind, at.x, at.z) : null;
+  if (p) {
+    const pos = renderer.project(p.x, p.z);
+    renderer.addBubbles(pos.x, pos.floorY - 6, 3);
+  }
+  selectPlant(null);
+}
+
+// 環境を変えた:背景を描き直して、ボタンを合わせる
+function changeEnv(patch) {
+  if (!current) return;
+  current.tank.setEnv(patch);
+  renderer.envChanged();
+  syncUi();
+}
+
+const editUi = createEditUi(document.getElementById('edit-ui'), {
+  onKind: (kind) => {
+    plantKind = plantKind === kind ? null : kind;
+    syncUi();
+  },
+  onRemove: () => {
+    if (current && selectedPlant) current.tank.removePlant(selectedPlant);
+    selectPlant(null);
+  },
+  onSoil: (soil) => changeEnv({ soil }),
+  onLightColor: (color) => changeEnv({ light: { color } }),
+  onBrightness: (brightness) => changeEnv({ light: { brightness } }),
+  onStrength: (strength) => changeEnv({ current: { strength } }),
+  onDir: (dir) => changeEnv({ current: { dir } }),
+});
+
+editButton.addEventListener('click', () => {
+  setEditing(!editing);
+  if (!editing) saveCurrent();
+});
+
 // ---- 観察モード ----
 function enterObserve(creature) {
   if (!current) return;
   if (cleaning) setCleaning(false);
+  if (editing) setEditing(false);
   observing = creature;
   current.tank.focus = creature;
   renderer.setFocus(creature);
@@ -162,8 +239,14 @@ function exitObserve() {
 // ボタンの出し分け
 function syncUi() {
   const tank = current?.tank;
-  tankButton.hidden = !tank || !!observing;
-  cleanButton.hidden = !tank || !!observing; // 藻の量に関係なく、いつでも掃除できる
+  tankButton.hidden = !tank || !!observing || editing;
+  cleanButton.hidden = !tank || !!observing || editing; // 藻の量に関係なく、いつでも掃除できる
+  editButton.hidden = !tank || !!observing;
+  if (editing && tank) {
+    // 抜かれた植物は選ばない
+    if (selectedPlant && !tank.plants.list.includes(selectedPlant)) selectPlant(null);
+    editUi.update({ env: tank.env, plantCount: tank.plants.count, kind: plantKind, selected: selectedPlant });
+  }
   if (observing) {
     observing.refreshMeal();
     observeUi.update(observing);
