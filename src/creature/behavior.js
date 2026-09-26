@@ -3,9 +3,11 @@
 // - rest    (休む)  : ときどき止まって、体だけゆっくり揺らす
 // - float   (浮く)  : ときどき、ふわっと浮いてゆっくり沈む
 // - wriggle (うねる): まれに、すばやく体を波打たせて進む
+// - seek    (向かう): エサなど、決まった場所へまっすぐ向かう(startSeek で始め、stopSeek で終える)
 // 向きを変えるときは、頭から先に曲がる Uターン(turn)をする。
 //
 // c.x, c.z は頭の位置(x: 左右 0〜1、z: 0 = 手前〜1 = 奥)、c.heading は頭の向き。
+// c.pace は動きの速さの倍率(藻が多いときや、観察中はゆっくり。ふだん = 1)。
 import { clamp, lerp, smoothstep } from '../util/math.js';
 import { DEPTH_SPAN, angleDiff, normalizeAngle } from './body.js';
 
@@ -21,7 +23,10 @@ const WAVE = {
   rest: { amp: 0.018, speed: 0.4 },
   float: { amp: 0.07, speed: 0.7 },
   wriggle: { amp: 0.2, speed: 5.5 },
+  seek: { amp: 0.04, speed: 1.2 },
 };
+
+const SEEK_REACH = 0.02; // 頭がこれより近づいたら、着いたとする
 
 export function createBehavior() {
   return {
@@ -68,28 +73,62 @@ export function startTurn(c) {
   };
 }
 
+// 決まった場所 (x, z) へ向かい始める
+export function startSeek(c, x, z) {
+  const b = c.behavior;
+  b.mode = 'seek';
+  b.time = 0;
+  b.turn = null;
+  b.target = { x, z };
+}
+
+export function stopSeek(c) {
+  const b = c.behavior;
+  b.target = null;
+  if (b.mode === 'seek') {
+    b.mode = 'rest';
+    b.time = 0;
+    b.duration = 2 + Math.random() * 3;
+  }
+}
+
+// 向かっている場所までの距離(横幅と同じ尺度)。向かっていなければ Infinity
+export function seekDistance(c) {
+  const t = c.behavior.target;
+  if (!t) return Infinity;
+  return Math.hypot(t.x - c.x, (t.z - c.z) * DEPTH_SPAN);
+}
+
 export function updateBehavior(c, g, dt) {
   const b = c.behavior;
+  const pace = c.pace ?? 1;
   b.time += dt;
+  const seeking = b.mode === 'seek';
 
-  // 次の行動へ
+  // 次の行動へ(ゆっくりのときは、うねったり浮いたりも少なくなる)
   if (b.mode === 'crawl' || b.mode === 'rest') {
-    const floatChance = (0.004 + g.floatiness * 0.045) * dt;
-    const wriggleChance = (0.001 + g.wriggliness * 0.012) * dt;
+    const quiet = pace * pace;
+    const floatChance = (0.004 + g.floatiness * 0.045) * dt * quiet;
+    const wriggleChance = (0.001 + g.wriggliness * 0.012) * dt * quiet;
     const r = Math.random();
     if (r < wriggleChance) enter(c, 'wriggle', g);
     else if (r < wriggleChance + floatChance) enter(c, 'float', g);
   }
-  if (b.time >= b.duration) {
+  if (!seeking && b.time >= b.duration) {
     enter(c, b.mode === 'crawl' && Math.random() < 0.45 ? 'rest' : 'crawl', g);
   }
 
   // 水槽の端に近づいたら折り返す
   const cos = Math.cos(c.heading);
-  if (b.mode !== 'rest' && ((c.x < X_TURN_MIN && cos < 0) || (c.x > X_TURN_MAX && cos > 0))) startTurn(c);
+  if (!seeking && b.mode !== 'rest' && ((c.x < X_TURN_MIN && cos < 0) || (c.x > X_TURN_MAX && cos > 0))) startTurn(c);
 
   // 向き
-  if (b.turn) {
+  if (seeking) {
+    // 向かう場所のほうへ、頭からゆっくり向きを変える
+    const t = b.target;
+    const want = Math.atan2((t.z - c.z) * DEPTH_SPAN, t.x - c.x);
+    if (seekDistance(c) > SEEK_REACH) c.heading += angleDiff(want, c.heading) * Math.min(1, dt * 1.8);
+  } else if (b.turn) {
     const t = b.turn;
     t.time += dt;
     const p = smoothstep(t.time / t.duration);
@@ -116,6 +155,13 @@ export function updateBehavior(c, g, dt) {
   else if (b.mode === 'float') targetSpeed = crawl * 0.6;
   else if (b.mode === 'wriggle') targetSpeed = crawl * 3 + 0.03;
   if (b.turn) targetSpeed = Math.max(targetSpeed, 0.035);
+  if (seeking) {
+    // 近づくほどゆっくりになって、着いたら止まる
+    const dist = seekDistance(c);
+    targetSpeed = dist > SEEK_REACH ? Math.min(crawl * 1.4 + 0.02, dist * 1.2 + 0.01) : 0;
+  }
+  // エサに向かうときは、ゆっくりのときでもあまり遅くしない
+  targetSpeed *= seeking ? Math.max(pace, 0.85) : pace;
   const accel = b.mode === 'wriggle' ? 4 : 0.8;
   b.speed += (targetSpeed - b.speed) * Math.min(1, dt * accel);
 
@@ -130,7 +176,7 @@ export function updateBehavior(c, g, dt) {
   // 体の波
   const w = WAVE[b.mode];
   b.waveAmp += (w.amp - b.waveAmp) * Math.min(1, dt * 3);
-  c.phase += dt * w.speed * lerp(1, 1.6, g.crawlSpeed);
+  c.phase += dt * w.speed * lerp(1, 1.6, g.crawlSpeed) * pace;
 }
 
 // 浮き上がりの形:すっと上がって、ゆっくり沈む

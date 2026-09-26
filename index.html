@@ -19,6 +19,17 @@
   <body>
     <canvas id="tank"></canvas>
     <button id="tank-button" class="pill" type="button" hidden></button>
+    <button id="clean-button" class="corner-btn" type="button" aria-label="掃除" aria-pressed="false" hidden>
+      <svg viewBox="0 0 48 48" aria-hidden="true">
+        <rect x="7" y="17" width="34" height="20" rx="6" fill="#ffd23b" stroke="#120a1c" stroke-width="3.5" />
+        <rect x="7" y="11" width="34" height="9" rx="4" fill="#3de8a0" stroke="#120a1c" stroke-width="3.5" />
+        <circle cx="15" cy="27" r="2.4" fill="#c9971c" />
+        <circle cx="25" cy="31" r="2" fill="#c9971c" />
+        <circle cx="32" cy="25" r="2.6" fill="#c9971c" />
+        <circle cx="20" cy="33" r="1.6" fill="#c9971c" />
+      </svg>
+    </button>
+    <div id="observe-ui" hidden></div>
     <div id="overlay"></div>
     <div id="rotate" aria-live="polite">
       <div class="phone" aria-hidden="true"></div>

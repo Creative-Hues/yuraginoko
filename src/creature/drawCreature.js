@@ -104,6 +104,7 @@ function bodyShape(spine, { grow = 0, ruffleAmp = 0, ruffleFreq = 1, shift = 0 }
 // 形の外側だけに輪郭を描く(形の内側に線が入らないように、下書きキャンバスで切り抜く)
 function drawOutline(ctx, scratch, shape, grownShape, color) {
   const sctx = scratch.getContext('2d');
+  if (!sctx) return; // キャンバスが使えないときは、輪郭を省く
   sctx.setTransform(1, 0, 0, 1, 0, 0);
   sctx.clearRect(0, 0, scratch.width, scratch.height);
   sctx.setTransform(ctx.getTransform());
@@ -221,6 +222,62 @@ function spikeShapes(c, spine, g, L, t) {
   return shapes;
 }
 
+// 観察モードで寄ったときだけ見える、細かい模様とハイライト。detail(0〜1)で濃さが変わる
+function drawDetail(ctx, c, spine, spikes, bodyPath, bodyH, Ls, lw, H1, H2, bodyA, detail) {
+  const seed = c.seed;
+  ctx.save();
+  ctx.clip(bodyPath);
+
+  // 細かい点々(明るい点と、暗い点)
+  for (let i = 0; i < 46; i++) {
+    const p = bodyPoint(spine, 0.05 + hash(seed, 300 + i) * 0.9, hash(seed, 400 + i) * 1.9 - 1);
+    const r = bodyH * lerp(0.018, 0.045, hash(seed, 500 + i));
+    const light = hash(seed, 600 + i) < 0.55;
+    ctx.fillStyle = light ? `hsla(${H2}, 100%, 88%, ${0.7 * detail * bodyA})` : `hsla(${H1}, 90%, 18%, ${0.45 * detail * bodyA})`;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r, 0, TAU);
+    ctx.fill();
+  }
+
+  // 縁のつや(体の内側に沿った、細い明るい線)
+  ctx.strokeStyle = `hsla(${H1}, 100%, 85%, ${0.35 * detail * bodyA})`;
+  ctx.lineWidth = lw * 1.4;
+  ctx.stroke(bodyPath);
+  ctx.restore();
+
+  // 2本目のハイライト(背中寄りの短い線)と、頭の近くの小さな光
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  for (let i = 0; i <= 6; i++) {
+    const p = bodyPoint(spine, 0.2 + (i / 6) * 0.22, -0.72);
+    if (i === 0) ctx.moveTo(p.x, p.y);
+    else ctx.lineTo(p.x, p.y);
+  }
+  ctx.strokeStyle = `hsla(${H1}, 100%, 95%, ${0.55 * detail * bodyA})`;
+  ctx.lineWidth = Ls * 0.012;
+  ctx.stroke();
+  ctx.fillStyle = `hsla(0, 0%, 100%, ${0.7 * detail * bodyA})`;
+  for (const [u, v, k] of [
+    [0.8, -0.5, 0.05],
+    [0.84, -0.35, 0.028],
+  ]) {
+    const p = bodyPoint(spine, u, v);
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, bodyH * k, 0, TAU);
+    ctx.fill();
+  }
+
+  // 突起の筋(根元から先へ、細い明るい線)
+  ctx.strokeStyle = `hsla(${H2}, 100%, 90%, ${0.5 * detail * bodyA})`;
+  ctx.lineWidth = Math.max(0.6, Ls * 0.006);
+  for (const s of spikes) {
+    ctx.beginPath();
+    ctx.moveTo(s.base.x, s.base.y);
+    ctx.quadraticCurveTo(s.mid.x, s.mid.y, s.tip.x, s.tip.y);
+    ctx.stroke();
+  }
+}
+
 /**
  * @param ctx      描画先(画面と同じ座標で描けるように設定済み)
  * @param scratch  輪郭用の下書きキャンバス(ctx のキャンバスと同じ大きさ)
@@ -229,9 +286,10 @@ function spikeShapes(c, spine, g, L, t) {
  * @param L        手前にいるときの体の長さ(px)。太さや突起の基準
  * @param t        時間(秒)
  * @param pixelScale  shadowBlur 用の拡大率(shadowBlur は座標変換の影響を受けないため)
+ * @param detail   観察モードで寄ったときの、細かい模様の濃さ(0〜1)
  * @returns 背骨(当たり判定用)
  */
-export function drawCreature(ctx, scratch, c, pts, L, t, pixelScale = 1) {
+export function drawCreature(ctx, scratch, c, pts, L, t, pixelScale = 1, detail = 0) {
   const g = c.expressed;
   const tc = c.touch;
   const H1 = g.hue * 360;
@@ -334,6 +392,8 @@ export function drawCreature(ctx, scratch, c, pts, L, t, pixelScale = 1) {
   ctx.lineCap = 'round';
   ctx.stroke();
 
+  if (detail > 0.01) drawDetail(ctx, c, spine, spikes, bodyPath, bodyH * sAvg, Ls, lw, H1, H2, bodyA, detail);
+
   // 輪郭
   drawOutline(ctx, scratch, bodyPath, bodyShape(spine, { ...bodyBase, grow: lw }), outline);
 
@@ -367,6 +427,18 @@ export function drawCreature(ctx, scratch, c, pts, L, t, pixelScale = 1) {
     rg.addColorStop(0, `hsla(${H2}, 100%, 82%, ${a})`);
     rg.addColorStop(0.5, `hsla(${H2}, 100%, 65%, ${a * 0.45})`);
     rg.addColorStop(1, `hsla(${H2}, 100%, 60%, 0)`);
+    ctx.fillStyle = rg;
+    ctx.fillRect(p.x - r, p.y - r, r * 2, r * 2);
+  }
+
+  // 消化中は、おなかのあたりが体の色でほのかに光る
+  if (c.digestGlow > 0.01) {
+    const p = bodyPoint(spine, 0.5, 0.1);
+    const r = bodyH * sAvg * 1.3;
+    const a = 0.4 * c.digestGlow;
+    const rg = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r);
+    rg.addColorStop(0, `hsla(${H1}, 100%, 75%, ${a})`);
+    rg.addColorStop(1, `hsla(${H1}, 100%, 60%, 0)`);
     ctx.fillStyle = rg;
     ctx.fillRect(p.x - r, p.y - r, r * 2, r * 2);
   }

@@ -85,3 +85,32 @@ describe('遺伝子', () => {
     expect(edge.amount).toBeGreaterThan(0);
   });
 });
+
+import { DIGEST_STEP, FOODS, FOOD_KEYS, foodDrift, nudgeGenes } from '../src/creature/genes.js';
+
+describe('エサ', () => {
+  it('4種類あり、どれも1回で動くのは DIGEST_STEP 以内', () => {
+    expect(FOOD_KEYS).toEqual(['red', 'blue', 'yellow', 'glow']);
+    const g = randomGenes(makeRng(3));
+    for (const key of FOOD_KEYS) {
+      for (const v of Object.values(foodDrift(g, key))) expect(Math.abs(v)).toBeLessThanOrEqual(DIGEST_STEP + 1e-12);
+    }
+  });
+
+  it('色のエサは、目標の色へ近いほうの回り方で寄せる', () => {
+    // 色相 0.95 から赤(0)へは、+方向(0 をまたぐ)のほうが近い
+    expect(foodDrift({ hue: 0.95, glow: 0 }, 'red').hue).toBeCloseTo(DIGEST_STEP);
+    expect(foodDrift({ hue: 0.1, glow: 0 }, 'red').hue).toBeCloseTo(-DIGEST_STEP);
+    // ほとんど着いていれば、その差だけ
+    expect(foodDrift({ hue: 0.61, glow: 0 }, 'blue').hue).toBeCloseTo(0.01);
+    const g = { ...randomGenes(makeRng(1)), hue: 0.99 };
+    nudgeGenes(g, foodDrift(g, 'yellow')); // 0.99 → 0.16 は +方向。1 をまたいで 0.02 に
+    expect(g.hue).toBeCloseTo(0.02);
+  });
+
+  it('光るエサは光り方を強くし、1を超えない', () => {
+    expect(foodDrift({ hue: 0.3, glow: 0.5 }, 'glow')).toEqual({ glow: DIGEST_STEP });
+    expect(foodDrift({ hue: 0.3, glow: 0.99 }, 'glow').glow).toBeCloseTo(0.01);
+    expect(FOODS.glow.hueToward).toBeUndefined();
+  });
+});

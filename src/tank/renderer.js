@@ -1,16 +1,25 @@
 // 水槽の描画。奥行きのある2D(奥ほど小さく・ぼかし・水の色に沈む)。横画面が基準。
 //
-// 描画は layers の順に重ねる。後のフェーズで藻・エサ・置物・観察モードなどを足すときは、
-// ここにレイヤーを追加する(insertLayer)。
+// 描画は layers の順に重ねる。後のフェーズで置物などを足すときは、ここにレイヤーを追加する(insertLayer)。
+//
+// 観察モードでは、カメラ(camera)が1匹に寄って追いかける。
+// 水槽の中のものは「水槽の座標」(カメラで拡大される)で描き、
+// ガラスの藻とビネットは screen: true のレイヤーとして画面そのままで描く。
 import { drawCreature } from '../creature/drawCreature.js';
-import { lerp } from '../util/math.js';
+import { clamp, lerp, smoothstep } from '../util/math.js';
 import { wave } from '../util/noise.js';
 import { renderScenery, renderVignette } from './scenery.js';
 import { Bubbles, Particles, Ripples } from './effects.js';
+import { AlgaeView } from './algae.js';
 
 const TAU = Math.PI * 2;
 const MAX_DPR = 2;
 const HIT_PAD = 16;
+export const OBSERVE_ZOOM = 2.2; // 観察モードの拡大率
+const CAMERA_SPEED = 2.5; // カメラが寄ったり戻ったりする速さ
+// 生き物の下書きの解像度の上限。iPhone はキャンバスに使えるメモリに上限があり、
+// 超えると新しいキャンバスが使えなくなる(タブを閉じるまで戻らない)ので、控えめにする
+const MAX_CREATURE_PX = 3;
 
 function supportsCanvasFilter() {
   const ctx = document.createElement('canvas').getContext('2d');
@@ -43,6 +52,13 @@ function sizeCanvas(canvas, w, h) {
   }
 }
 
+// 使わなくなったキャンバスのメモリを返す(iPhone では大きさを 0 にしないと、すぐには返らない)
+function releaseCanvas(canvas) {
+  if (!canvas) return;
+  canvas.width = 0;
+  canvas.height = 0;
+}
+
 export class TankRenderer {
   constructor(canvas) {
     this.canvas = canvas;
@@ -55,19 +71,28 @@ export class TankRenderer {
     this.particles = new Particles();
     this.bubbles = new Bubbles();
     this.ripples = new Ripples();
+    this.algaeView = new AlgaeView();
     this.time = 0;
     this.running = false;
     this.last = 0;
+    this.camera = { x: 0, y: 0, zoom: 1 }; // 見ている中心(水槽の座標)と拡大率
+    this.focus = null; // 観察中の生き物
+    this.onFrame = null; // 毎フレーム呼ぶ(ボタンの表示の更新など)
+    this.onError = null; // 描画中にエラーが起きたとき(描画は止めずに続ける)
+    this.shrinkWhenBack = false; // 観察モードから戻りきったら、大きくした下書きを返す
 
     this.layers = [
       { name: 'background', draw: () => this.ctx.drawImage(this.bg, 0, 0, this.W, this.H) },
       { name: 'particlesBack', draw: () => this.particles.draw(this.ctx, this, this.time, true) },
+      { name: 'droppings', draw: () => this.tank?.food.drawDroppings(this.ctx, this) },
+      { name: 'pellets', draw: () => this.tank?.food.drawPellets(this.ctx, this, this.time) },
       { name: 'creatures', draw: () => this.drawCreatures() },
       { name: 'bubbles', draw: () => this.bubbles.draw(this.ctx) },
       { name: 'light', draw: () => this.drawLight() },
       { name: 'particlesFront', draw: () => this.particles.draw(this.ctx, this, this.time, false) },
       { name: 'ripples', draw: () => this.ripples.draw(this.ctx) },
-      { name: 'vignette', draw: () => this.ctx.drawImage(this.vignette, 0, 0, this.W, this.H) },
+      { name: 'algae', screen: true, draw: () => this.algaeView.draw(this.ctx, this.tank?.algae, this.W, this.H) },
+      { name: 'vignette', screen: true, draw: () => this.ctx.drawImage(this.vignette, 0, 0, this.W, this.H) },
     ];
 
     this.resize();
@@ -82,9 +107,72 @@ export class TankRenderer {
   }
 
   setTank(tank) {
+    if (this.tank && this.tank !== tank) this.releaseCreatureCanvases();
     this.tank = tank;
+    this.focus = null;
+    this.camera = { x: this.W / 2, y: this.H / 2, zoom: 1 };
     this.bubbles.clear();
     this.renderBackground();
+  }
+
+  // 生き物の下書きキャンバスを返す(次に描くとき、今の大きさで作り直される)
+  releaseCreatureCanvases() {
+    for (const c of this.tank?.creatures ?? []) {
+      releaseCanvas(c.canvas);
+      releaseCanvas(c.scratch);
+      c.canvas = null;
+      c.scratch = null;
+    }
+    releaseCanvas(this.soft);
+  }
+
+  // ---- カメラ ----
+  setFocus(creature) {
+    if (this.focus && !creature) this.shrinkWhenBack = true;
+    this.focus = creature;
+  }
+
+  // 観察モードでの寄り具合(0 = ふだん〜1 = いちばん寄った)
+  get detail() {
+    return smoothstep((this.camera.zoom - 1) / (OBSERVE_ZOOM - 1));
+  }
+
+  updateCamera(dt) {
+    const cam = this.camera;
+    let tx = this.W / 2;
+    let ty = this.H / 2;
+    let tz = 1;
+    const center = this.focus?.screen?.center;
+    if (center) {
+      tx = center.x;
+      ty = center.y;
+      tz = OBSERVE_ZOOM;
+    }
+    const k = 1 - Math.exp(-dt * CAMERA_SPEED);
+    cam.zoom += (tz - cam.zoom) * k;
+    cam.x += (tx - cam.x) * k;
+    cam.y += (ty - cam.y) * k;
+    // 水槽の外が見えないように
+    const hw = this.W / (2 * cam.zoom);
+    const hh = this.H / (2 * cam.zoom);
+    cam.x = clamp(cam.x, hw, this.W - hw);
+    cam.y = clamp(cam.y, hh, this.H - hh);
+    if (this.shrinkWhenBack && !this.focus && cam.zoom < 1.01) {
+      this.shrinkWhenBack = false;
+      this.releaseCreatureCanvases();
+    }
+  }
+
+  // 画面上の位置 → 水槽の座標
+  toWorld(sx, sy) {
+    const { x, y, zoom } = this.camera;
+    return { x: (sx - this.W / 2) / zoom + x, y: (sy - this.H / 2) / zoom + y };
+  }
+
+  setWorldTransform() {
+    const { x, y, zoom } = this.camera;
+    const s = this.dpr * zoom;
+    this.ctx.setTransform(s, 0, 0, s, this.dpr * (this.W / 2 - x * zoom), this.dpr * (this.H / 2 - y * zoom));
   }
 
   resize() {
@@ -98,12 +186,14 @@ export class TankRenderer {
     // 生き物が動く範囲(ノッチの内側)
     this.left = safe.left + this.W * 0.02;
     this.right = this.W - safe.right - this.W * 0.02;
+    if (!this.focus) this.camera = { x: this.W / 2, y: this.H / 2, zoom: 1 };
     this.bubbles.clear();
     this.renderBackground();
     const v = this.vignette;
     v.width = this.canvas.width;
     v.height = this.canvas.height;
     const vctx = v.getContext('2d');
+    if (!vctx) return;
     vctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     renderVignette(vctx, this.W, this.H);
   }
@@ -141,10 +231,15 @@ export class TankRenderer {
     this.last = performance.now();
     const loop = (now) => {
       if (!this.running) return;
+      // 先に次のフレームを頼んでおく(1フレームでエラーが起きても、描画が止まったままにならないように)
+      requestAnimationFrame(loop);
       const dt = Math.min(0.05, (now - this.last) / 1000);
       this.last = now;
-      this.frame(dt);
-      requestAnimationFrame(loop);
+      try {
+        this.frame(dt);
+      } catch (err) {
+        this.onError?.(err);
+      }
     };
     requestAnimationFrame(loop);
   }
@@ -156,11 +251,30 @@ export class TankRenderer {
   frame(dt) {
     this.time += dt;
     this.tank?.update(dt, this.time);
+    this.handleTankEvents();
     this.particles.update(dt);
     this.bubbles.update(dt, this);
     this.ripples.update(dt);
-    this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-    for (const layer of this.layers) layer.draw(dt);
+    this.updateCamera(dt);
+    for (const layer of this.layers) {
+      if (layer.screen) this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+      else this.setWorldTransform();
+      layer.draw(dt);
+    }
+    this.onFrame?.(dt);
+  }
+
+  // 水槽で起きたこと(食べたときなど)に合わせて、泡を出す
+  handleTankEvents() {
+    const events = this.tank?.events;
+    if (!events?.length) return;
+    for (const e of events) {
+      if (e.type === 'eat') {
+        const pos = this.project(e.x, e.z);
+        this.bubbles.add(pos.x, pos.floorY - this.creatureSize * 0.05 * pos.scale, 4, 0.6 * pos.scale);
+      }
+    }
+    events.length = 0;
   }
 
   renderBackground() {
@@ -168,6 +282,7 @@ export class TankRenderer {
     c.width = Math.round(this.W * this.dpr);
     c.height = Math.round(this.H * this.dpr);
     const ctx = c.getContext('2d');
+    if (!ctx) return; // キャンバスが使えないときは、背景なしで続ける
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     renderScenery(ctx, this, this.tank?.seed ?? 1);
   }
@@ -175,10 +290,15 @@ export class TankRenderer {
   // ---- 生き物 ----
   drawCreatures() {
     if (!this.tank) return;
-    const { ctx, dpr } = this;
+    const { ctx } = this;
+    // 寄っているときは、そのぶん細かく描く(拡大してもにじまないように)
+    const px = Math.min(this.dpr * this.camera.zoom, MAX_CREATURE_PX);
+    const detail = this.detail;
     const L = this.creatureSize;
     const list = this.tank.creatures.map((c) => ({ c, z: c.points.reduce((s, p) => s + p.z, 0) / c.points.length }));
     list.sort((a, b) => b.z - a.z); // 奥から描く
+    // 観察中は、見ている1匹にピントを合わせる(奥行きの差でぼかす)
+    const focusZ = list.find((e) => e.c === this.focus)?.z ?? null;
 
     for (const { c, z } of list) {
       // 節を画面に写す(しっぽ → 頭)
@@ -210,8 +330,8 @@ export class TankRenderer {
       const by = minY - L * 1.2;
       const bw = maxX - minX + L * 1.6;
       const bh = maxY - minY + L * 1.55;
-      const pw = Math.ceil(bw * dpr);
-      const ph = Math.ceil(bh * dpr);
+      const pw = Math.ceil(bw * px);
+      const ph = Math.ceil(bh * px);
       c.canvas ??= document.createElement('canvas');
       c.scratch ??= document.createElement('canvas');
       sizeCanvas(c.canvas, pw, ph);
@@ -220,10 +340,11 @@ export class TankRenderer {
         c.scratch.height = c.canvas.height;
       }
       const octx = c.canvas.getContext('2d');
+      if (!octx) continue; // キャンバスが使えないときは、この1匹を描かずに続ける
       octx.setTransform(1, 0, 0, 1, 0, 0);
       octx.clearRect(0, 0, c.canvas.width, c.canvas.height);
-      octx.setTransform(dpr, 0, 0, dpr, -bx * dpr, -by * dpr);
-      const spine = drawCreature(octx, c.scratch, c, pts, L, this.time, dpr);
+      octx.setTransform(px, 0, 0, px, -bx * px, -by * px);
+      const spine = drawCreature(octx, c.scratch, c, pts, L, c.clock, px, detail);
 
       // 奥ほど水の色に少し沈める
       if (z > 0.05) {
@@ -234,15 +355,17 @@ export class TankRenderer {
         octx.globalCompositeOperation = 'source-over';
       }
 
-      this.drawSoft(c.canvas, pw, ph, bx, by, bw, bh, z);
-      c.screen = { spine, spikeReach: L * 0.2 * c.expressed.spikeLength };
+      const blurZ = focusZ == null ? z : lerp(z, Math.abs(z - focusZ), detail);
+      this.drawSoft(c.canvas, pw, ph, bx, by, bw, bh, blurZ, px);
+      const mid = spine[Math.floor(spine.length / 2)];
+      c.screen = { spine, spikeReach: L * 0.2 * c.expressed.spikeLength, center: { x: mid.x, y: mid.y - mid.top * 0.5 } };
     }
   }
 
-  // 奥にあるものほどぼかして描く
-  drawSoft(img, sw, sh, x, y, w, h, z) {
+  // 奥にあるものほどぼかして描く。px は下書きの解像度(ぼかしの幅は画素で指定するため)
+  drawSoft(img, sw, sh, x, y, w, h, z, px = this.dpr) {
     const { ctx } = this;
-    const blur = z * 1.2 * this.dpr;
+    const blur = z * 1.2 * px;
     if (blur < 0.3) {
       ctx.drawImage(img, 0, 0, sw, sh, x, y, w, h);
     } else if (this.canFilter) {
@@ -257,6 +380,10 @@ export class TankRenderer {
       const sc = this.soft;
       sizeCanvas(sc, tw, th);
       const sctx = sc.getContext('2d');
+      if (!sctx) {
+        ctx.drawImage(img, 0, 0, sw, sh, x, y, w, h);
+        return;
+      }
       sctx.clearRect(0, 0, tw, th);
       sctx.drawImage(img, 0, 0, sw, sh, 0, 0, tw, th);
       ctx.drawImage(sc, 0, 0, tw, th, x, y, w, h);
@@ -283,6 +410,24 @@ export class TankRenderer {
       if (best) return { creature: c, u: best.u };
     }
     return null;
+  }
+
+  // (x, y) にいる生き物。いなければ、体の中心がいちばん近い生き物
+  creatureNear(x, y) {
+    const hit = this.hitTest(x, y);
+    if (hit) return hit.creature;
+    let best = null;
+    let bestD = Infinity;
+    for (const c of this.tank?.creatures ?? []) {
+      const m = c.screen?.center;
+      if (!m) continue;
+      const d = Math.hypot(m.x - x, m.y - y);
+      if (d < bestD) {
+        bestD = d;
+        best = c;
+      }
+    }
+    return best;
   }
 
   // ---- 光 ----

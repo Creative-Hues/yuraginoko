@@ -43,6 +43,22 @@ export const TOUCH_DRIFT = {
   flick: { spikeLength: -0.005 }, // 弾く → 突起が短くなっていく
 };
 
+// エサの種類(観察モードであげる)。消化すると、遺伝子の基本値が少しだけ動く。
+// - hueToward: 基本の色(hue)を、この色相へ近いほうの回り方で寄せる
+// - glow:      光り方(glow)を強くする(+1)
+// color / shine は、エサの粒とボタンの見た目
+export const FOODS = {
+  red: { label: '赤いエサ', color: '#ff3b5c', hueToward: 0.0 },
+  blue: { label: '青いエサ', color: '#3b7bff', hueToward: 0.62 },
+  yellow: { label: '黄色いエサ', color: '#ffd23b', hueToward: 0.16 },
+  glow: { label: '光るエサ', color: '#c6ff3d', shine: true, glow: +1 },
+};
+export const FOOD_KEYS = Object.keys(FOODS);
+
+export const DIGEST_STEP = 0.03; // 1回の消化で、基本値が動く量
+export const DIGEST_SECONDS = 4; // 消化で色が変わりきるまで(秒)
+export const MEAL_REST_SECONDS = 60; // エサ → 消化 → 排泄 の1周のあと、休む時間(秒)
+
 const DEF_BY_KEY = Object.fromEntries(GENE_DEFS.map((d) => [d.key, d]));
 
 function fit(def, v) {
@@ -77,17 +93,36 @@ export function expressGenes(genes, t, seed, out = {}) {
   return out;
 }
 
-// 触れ合いによる基本値の変化を、genes に直接反映する。変化があれば true。
-export function applyTouchDrift(genes, kind) {
-  const drift = TOUCH_DRIFT[kind];
-  if (!drift) return false;
+// 基本値の変化 drift({ key: 変化量 })を k 倍して、genes に直接反映する。変化があれば true。
+export function nudgeGenes(genes, drift, k = 1) {
   let changed = false;
   for (const [key, delta] of Object.entries(drift)) {
+    if (!DEF_BY_KEY[key] || typeof delta !== 'number') continue;
     const before = genes[key];
-    genes[key] = fit(DEF_BY_KEY[key], before + delta);
+    genes[key] = fit(DEF_BY_KEY[key], before + delta * k);
     if (genes[key] !== before) changed = true;
   }
   return changed;
+}
+
+// 触れ合いによる基本値の変化を、genes に直接反映する。変化があれば true。
+export function applyTouchDrift(genes, kind) {
+  const drift = TOUCH_DRIFT[kind];
+  return drift ? nudgeGenes(genes, drift) : false;
+}
+
+// エサを1回消化したときの基本値の変化(genes にはまだ反映しない)
+export function foodDrift(genes, foodKey) {
+  const food = FOODS[foodKey];
+  const drift = {};
+  if (!food) return drift;
+  if (typeof food.hueToward === 'number') {
+    let d = food.hueToward - genes.hue;
+    d -= Math.round(d); // 近いほうの回り方(-0.5〜0.5)
+    drift.hue = clamp(d, -DIGEST_STEP, DIGEST_STEP);
+  }
+  if (food.glow) drift.glow = Math.min(DIGEST_STEP, 1 - genes.glow);
+  return drift;
 }
 
 // 模様の値から、主な模様と、境目付近で混ざりかけている隣の模様を求める
