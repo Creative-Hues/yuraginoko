@@ -34,7 +34,7 @@ describe('保存', () => {
     c.x = 0.42;
 
     await saveTank(tank.toData());
-    const loaded = Tank.fromData(await loadTank(p.id));
+    const loaded = Tank.fromData(await loadTank(tank.id));
     expect(loaded.creatures).toHaveLength(2);
     expect(loaded.creatures[0].x).toBe(0.42);
     expect(loaded.creatures[0].genes).toEqual(c.genes);
@@ -125,7 +125,7 @@ describe('フェーズ2の保存', () => {
     expect(tank.food.droppings.every((d) => d.x0 === tail.x)).toBe(true);
 
     await saveTank(tank.toData());
-    const loaded = Tank.fromData(await loadTank(p.id));
+    const loaded = Tank.fromData(await loadTank(tank.id));
     const lc = loaded.creatures[0];
     expect(lc.genes.hue).toBeCloseTo(0.58, 6);
     expect(lc.meal.stage).toBe(MEAL.resting);

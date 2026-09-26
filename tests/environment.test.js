@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Tank } from '../src/tank/tank.js';
+import { TANK_DATA_VERSION, Tank } from '../src/tank/tank.js';
 import { DEFAULT_ENV, ENV_CHANGE, NUTRIENT, PLANT_GROWTH, PLANT_LIMIT } from '../src/tank/envConfig.js';
 import { normalizeEnv, targetFor } from '../src/tank/environment.js';
 import { plantStage } from '../src/tank/plants.js';
@@ -43,7 +43,7 @@ describe('環境', () => {
     expect(tank.algae.level).toBeGreaterThan(0);
     expect(tank.creatures.map((c) => c.toJSON())).toEqual(before);
     const saved = tank.toData();
-    expect(saved.version).toBe(3);
+    expect(saved.version).toBe(TANK_DATA_VERSION);
     expect(saved.env).toEqual(DEFAULT_ENV);
   });
 

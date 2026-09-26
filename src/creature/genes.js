@@ -146,7 +146,7 @@ export function patternMix(value) {
   return { main: PATTERN_TYPES[index], other: PATTERN_TYPES[other], amount };
 }
 
-// (後のフェーズの交配用)2つの遺伝子から子の遺伝子を作る
+// 2つの遺伝子を混ぜる(項目ごとにどちらかの親の値 ± mutation)。交配の変異は breeding.js で足す
 export function mixGenes(a, b, rng, mutation = 0.03) {
   const child = {};
   for (const def of GENE_DEFS) {

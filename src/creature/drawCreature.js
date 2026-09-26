@@ -7,6 +7,7 @@
 import { patternMix } from './genes.js';
 import { drawDigestEffect } from './digestEffects.js';
 import { MEAL } from './creature.js';
+import { drawQuirksBehind, drawQuirksOver } from './quirks.js';
 import { clamp, lerp, smoothstep } from '../util/math.js';
 
 const TAU = Math.PI * 2;
@@ -322,6 +323,10 @@ export function drawCreature(ctx, scratch, c, pts, L, t, pixelScale = 1, detail 
   const skirtPath = bodyShape(spine, skirtBase);
   const spikes = spikeShapes(c, spine, g, Ls, t);
   const headDir = tangent(spine, 0.95).x;
+  const quirks = c.quirks ?? [];
+  const qb = quirks.length
+    ? { point: (u, v) => bodyPoint(spine, u, v), tangent: (u) => tangent(spine, u), path: bodyPath, Ls, bodyH: bodyH * sAvg, lw, H1, H2, bodyA, outline, t }
+    : null;
 
   ctx.lineJoin = 'round';
 
@@ -368,6 +373,9 @@ export function drawCreature(ctx, scratch, c, pts, L, t, pixelScale = 1, detail 
     ctx.stroke();
   }
 
+  // 変異で生えた余分な突起(根元は体に隠れる)
+  if (qb) drawQuirksBehind(ctx, quirks, qb);
+
   // 体
   ctx.fillStyle = `hsla(${H1}, 100%, 55%, ${bodyA})`;
   ctx.fill(bodyPath);
@@ -405,15 +413,21 @@ export function drawCreature(ctx, scratch, c, pts, L, t, pixelScale = 1, detail 
   // 輪郭
   drawOutline(ctx, scratch, bodyPath, bodyShape(spine, { ...bodyBase, grow: lw }), outline);
 
-  // 触角(頭の2本)。弾くと少し引っ込む
-  const hornLen = Ls * 0.15 * (1 - 0.45 * clamp(tc.shrink, -0.25, 1));
+  // 変異の欠けとにじみ
+  if (qb) drawQuirksOver(ctx, quirks, qb);
+
+  // 触角(頭の2本)。弾くと少し引っ込む。ほかの子と触れ合っている間は、相手のほうへ伸ばす
+  const meet = c.meet ? Math.pow(Math.sin(Math.PI * clamp(c.meet.t / c.meet.seconds)), 0.6) : 0;
+  const hornLen = Ls * 0.15 * (1 - 0.45 * clamp(tc.shrink, -0.25, 1)) * (1 + 0.55 * meet);
+  const hornTips = [];
   for (const [u, lean] of [
     [0.86, 0.35],
     [0.92, 0.65],
   ]) {
     const b = bodyPoint(spine, u, -0.85);
-    const a = -Math.PI / 2 + headDir * lean + Math.sin(t * 0.8 + u * 9) * 0.1;
+    const a = -Math.PI / 2 + headDir * (lean + 0.85 * meet) + Math.sin(t * (0.8 + 2.2 * meet) + u * 9) * 0.1;
     const tip = { x: b.x + Math.cos(a) * hornLen, y: b.y + Math.sin(a) * hornLen };
+    hornTips.push(tip);
     outlinedLine(ctx, b, tip, Ls * 0.035, `hsla(${H2}, 100%, 62%, ${Math.max(bodyA, 0.6)})`, outline, lw * 0.6);
     ctx.beginPath();
     ctx.arc(tip.x, tip.y, Ls * 0.022, 0, TAU);
@@ -453,6 +467,18 @@ export function drawCreature(ctx, scratch, c, pts, L, t, pixelScale = 1, detail 
     rg.addColorStop(1, `hsla(${H2}, 100%, 65%, 0)`);
     ctx.fillStyle = rg;
     ctx.fillRect(p.x - r, p.y - r, r * 2, r * 2);
+  }
+
+  // 触れ合っている触角の先が、ほのかに光る
+  if (meet > 0.05) {
+    for (const tip of hornTips) {
+      const r = Ls * 0.07 * meet;
+      const rg = ctx.createRadialGradient(tip.x, tip.y, 0, tip.x, tip.y, r);
+      rg.addColorStop(0, `hsla(${H2}, 100%, 85%, ${0.6 * meet})`);
+      rg.addColorStop(1, `hsla(${H2}, 100%, 70%, 0)`);
+      ctx.fillStyle = rg;
+      ctx.fillRect(tip.x - r, tip.y - r, r * 2, r * 2);
+    }
   }
 
   // 突起の先がほのかに光る

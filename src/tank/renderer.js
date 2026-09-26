@@ -15,6 +15,8 @@ import { drawPlant, plantBox } from './drawPlants.js';
 import { Bubbles, Particles, Ripples, Sparkles } from './effects.js';
 import { ENV_CHANGE, PLANT_FADE } from './envConfig.js';
 import { AlgaeView } from './algae.js';
+import { Farewells } from './farewell.js';
+import { MEET } from '../creature/lifeConfig.js';
 
 const TAU = Math.PI * 2;
 const MAX_DPR = 2;
@@ -87,6 +89,8 @@ export class TankRenderer {
     this.focus = null; // 観察中の生き物
     this.onFrame = null; // 毎フレーム呼ぶ(ボタンの表示の更新など)
     this.onError = null; // 描画中にエラーが起きたとき(描画は止めずに続ける)
+    this.onTankEvent = null; // 水槽で起きたことを、画面の側にも知らせる(5匹になったときなど)
+    this.farewells = new Farewells(); // 水槽を離れる子の演出
     this.shrinkWhenBack = false; // 観察モードから戻りきったら、大きくした下書きを返す
     this.bgDirty = false; // 環境が変わって、背景の描き直しが必要
     this.selectedPlant = null; // 編集モードで選んでいる植物
@@ -123,6 +127,7 @@ export class TankRenderer {
   }
 
   setTank(tank) {
+    for (const c of this.farewells.clear()) this.releaseOneCreature(c);
     if (this.tank && this.tank !== tank) this.releaseCreatureCanvases();
     this.tank = tank;
     this.focus = null;
@@ -138,14 +143,17 @@ export class TankRenderer {
     this.bgDirty = true;
   }
 
+  releaseOneCreature(c) {
+    releaseCanvas(c.canvas);
+    releaseCanvas(c.scratch);
+    c.canvas = null;
+    c.scratch = null;
+  }
+
   // 生き物の下書きキャンバスを返す(次に描くとき、今の大きさで作り直される)
   releaseCreatureCanvases() {
-    for (const c of this.tank?.creatures ?? []) {
-      releaseCanvas(c.canvas);
-      releaseCanvas(c.scratch);
-      c.canvas = null;
-      c.scratch = null;
-    }
+    for (const c of this.tank?.creatures ?? []) this.releaseOneCreature(c);
+    for (const f of this.farewells.list) this.releaseOneCreature(f.c);
     releaseCanvas(this.soft);
     this.releasePlantCanvas();
   }
@@ -305,6 +313,7 @@ export class TankRenderer {
     this.time += dt;
     this.tank?.update(dt, this.time);
     this.handleTankEvents();
+    for (const c of this.farewells.update(dt, this)) this.releaseOneCreature(c);
     if (this.bgDirty) {
       this.bgDirty = false;
       this.renderBackground();
@@ -340,12 +349,31 @@ export class TankRenderer {
           const { scale } = this.project(e.creature.x, e.creature.z);
           this.sparkles.add(center.x, center.y, ENV_CHANGE.SPARKS, e.creature.expressed.hue2 * 360, scale);
         }
-      } else if (e.type === 'sprout') {
+      } else if (e.type === 'sprout' || e.type === 'egg') {
         const pos = this.project(e.x, e.z);
         this.bubbles.add(pos.x, pos.floorY - this.creatureSize * 0.04 * pos.scale, 3, 0.5 * pos.scale);
+      } else if (e.type === 'meet') {
+        // 触れ合った瞬間:2匹の頭の間に、小さな光と泡
+        const ha = e.a.screen?.spine.at(-1);
+        const hb = e.b.screen?.spine.at(-1);
+        if (ha && hb) {
+          const x = (ha.x + hb.x) / 2;
+          const y = (ha.y - ha.top + hb.y - hb.top) / 2;
+          const { scale } = this.project(e.x, e.z);
+          let hue = (e.a.expressed.hue2 + e.b.expressed.hue2) / 2;
+          if (Math.abs(e.a.expressed.hue2 - e.b.expressed.hue2) > 0.5) hue = (hue + 0.5) % 1; // 色相の近いほうの中間
+          this.sparkles.add(x, y, MEET.SPARKS, hue * 360, scale * 0.8);
+          this.bubbles.add(x, y, MEET.BUBBLES, 0.45 * scale);
+        }
+      } else if (e.type === 'hatch') {
+        const pos = this.project(e.x, e.z);
+        const y = pos.floorY - this.creatureSize * 0.05 * pos.scale;
+        this.bubbles.add(pos.x, y, 5, 0.5 * pos.scale);
+        this.sparkles.add(pos.x, y, 6, e.creature.genes.hue2 * 360, pos.scale * 0.8);
       }
     }
-    events.length = 0;
+    const list = events.splice(0);
+    for (const e of list) this.onTankEvent?.(e);
   }
 
   renderBackground() {
@@ -365,15 +393,32 @@ export class TankRenderer {
     const px = Math.min(this.dpr * this.camera.zoom, MAX_CREATURE_PX);
     const detail = this.detail;
     const L = this.creatureSize;
-    const list = this.tank.creatures.map((c) => ({ c, z: c.points.reduce((s, p) => s + p.z, 0) / c.points.length }));
+    const middleZ = (c) => c.points.reduce((s, p) => s + p.z, 0) / c.points.length;
+    const list = this.tank.creatures.map((c) => ({ c, z: middleZ(c) }));
     // 観察中は、見ている1匹にピントを合わせる(奥行きの差でぼかす)
     const focusZ = list.find((e) => e.c === this.focus)?.z ?? null;
+    for (const f of this.farewells.list) list.push({ c: f.c, z: middleZ(f.c), farewell: f });
     for (const p of this.tank.plants.list) list.push({ plant: p, z: p.z });
+    for (const e of this.tank.eggs.list) list.push({ egg: e, z: e.z });
     list.sort((a, b) => b.z - a.z); // 奥から描く
 
     const current = this.tank.env.current;
     const k = Math.min(1, dt * PLANT_FADE.SPEED);
     for (const item of list) {
+      if (item.egg) {
+        this.tank.eggs.draw(this.ctx, this, item.egg, this.time);
+        continue;
+      }
+      if (item.farewell) {
+        const a = this.farewells.alpha(item.farewell);
+        if (a > 0.01) {
+          this.ctx.globalAlpha = a;
+          this.drawOneCreature(item.c, item.z, focusZ, px, detail, L);
+          this.ctx.globalAlpha = 1;
+        }
+        this.farewells.drawOver(this.ctx, item.farewell, this.time);
+        continue;
+      }
       if (!item.plant) {
         this.drawOneCreature(item.c, item.z, focusZ, px, detail, L);
         continue;
@@ -396,7 +441,7 @@ export class TankRenderer {
     const x1 = b.x + b.w * 0.6;
     const y0 = b.y - b.h;
     for (const item of list) {
-      if (item.plant || item.z <= plant.z) continue;
+      if (!item.c || item.z <= plant.z) continue;
       const spine = item.c.screen?.spine;
       if (!spine) continue;
       for (const q of spine) {
@@ -446,8 +491,9 @@ export class TankRenderer {
     ctx.globalAlpha = 1;
   }
 
-  drawOneCreature(c, z, focusZ, px, detail, L) {
+  drawOneCreature(c, z, focusZ, px, detail, adultL) {
     const { ctx } = this;
+    const L = adultL * c.size; // 赤ちゃんは小さく
     // 節を画面に写す(しっぽ → 頭)
     const pts = [];
     const shadow = new Path2D();

@@ -2,20 +2,26 @@
 import { Creature, MEAL } from '../creature/creature.js';
 import { seekDistance } from '../creature/behavior.js';
 import { DEPTH_SPAN } from '../creature/body.js';
-import { randomSeed } from '../util/random.js';
-import { clamp } from '../util/math.js';
+import { makeId, makeRng, randomSeed } from '../util/random.js';
+import { clamp, lerp, smoothstep } from '../util/math.js';
 import { nudgeGenes } from '../creature/genes.js';
 import { Algae, DAY_MS, calmFor } from './algae.js';
 import { FoodBits } from './food.js';
 import { Nutrients, accumulateExposure, copyEnv, exposureDrift, normalizeEnv } from './environment.js';
 import { Plants } from './plants.js';
 import { ENV_CHANGE, ENV_TICK, NUTRIENT, SPROUT, SPROUT_BY_FOOD } from './envConfig.js';
+import { Social } from './social.js';
+import { Eggs } from './eggs.js';
+import { makeChild, parentSnapshot } from '../creature/breeding.js';
+import { EGG, GROW, MATE, TANK_CAPACITY } from '../creature/lifeConfig.js';
 
 // 保存データの形が変わったら上げる(読み込み時に古い形を変換できるように)
 // - 1: フェーズ1
 // - 2: lastSeenAt(最後に見ていた時刻)と things.algae(藻)、生き物ごとの meal(食事の段階)を追加
 // - 3: env(土・光・水流)と things.plants(植物)、things.soil(底の栄養)を追加
-export const TANK_DATA_VERSION = 3;
+// - 4: id・name・createdAt(1人が複数の水槽を持てるように)、social(交流の回数)、eggs(卵)、
+//      生き物ごとの growth・quirks・mutations・parents・bornAt を追加
+export const TANK_DATA_VERSION = 4;
 
 const OBSERVED_PACE = 0.6; // 観察中の1匹は、画面から逃げにくいよう少しゆっくり
 const EAT_REACH = 0.035; // 頭がエサにこれより近づいたら食べ始める
@@ -34,6 +40,9 @@ function loadPart(label, make) {
 export class Tank {
   constructor(data) {
     this.personaId = data.personaId;
+    this.id = data.id ?? data.personaId; // フェーズ3までの水槽は、人の id が水槽の id
+    this.name = typeof data.name === 'string' ? data.name : '';
+    this.createdAt = Number(data.createdAt ?? data.savedAt) || Date.now();
     this.seed = data.seed ?? randomSeed(); // 底の小石など、水槽ごとの景色に使う
     this.creatures = (data.creatures ?? []).map((d) => this.adopt(new Creature(d)));
     // 水槽内のもの(藻など)と環境設定。知らない中身も消さずにそのまま保存し直す
@@ -42,6 +51,8 @@ export class Tank {
     this.algae = loadPart('藻', (ok) => new Algae(ok ? this.things.algae : null, this.seed));
     this.plants = loadPart('植物', (ok) => new Plants(ok ? this.things.plants : null));
     this.nutrients = loadPart('底の栄養', (ok) => new Nutrients(ok ? this.things.soil : null));
+    this.social = loadPart('交流', (ok) => new Social(ok ? data.social : null));
+    this.eggs = loadPart('卵', (ok) => new Eggs(ok ? data.eggs : null));
     // 最後に見ていた時刻。古いデータには無いので、保存した時刻で代わりにする
     this.lastSeenAt = Number(data.lastSeenAt ?? data.savedAt) || Date.now();
 
@@ -51,16 +62,24 @@ export class Tank {
     this.focus = null; // 観察中の生き物
     this.events = []; // 描画側に知らせること(食べたときの泡など)
     this.envClock = 0; // 植物が育つのと環境の記録を、ENV_TICK 秒ごとに進める
-    this.random = Math.random; // 芽が出るかの判定(確認用に差し替えられる)
+    this.random = Math.random; // 芽が出るか・どちらが卵を産むかの判定(確認用に差し替えられる)
     this.dirty = false;
   }
 
-  static createNew(personaId) {
-    const tank = new Tank({ personaId, lastSeenAt: Date.now() });
+  // 新しい水槽(初期の環境で、新しい2匹)
+  static createNew(personaId, { id = makeId(), name = '' } = {}) {
+    const tank = Tank.createEmpty(personaId, { id, name });
     tank.creatures = [
       Creature.create({ x: 0.35, z: 0.15 + Math.random() * 0.3 }),
       Creature.create({ x: 0.65, z: 0.55 + Math.random() * 0.35 }),
     ].map((c) => tank.adopt(c));
+    tank.dirty = true;
+    return tank;
+  }
+
+  // 生き物のいない新しい水槽(初期の環境)。別の水槽から移すときに使う
+  static createEmpty(personaId, { id = makeId(), name = '' } = {}) {
+    const tank = new Tank({ personaId, id, name, createdAt: Date.now(), lastSeenAt: Date.now() });
     tank.dirty = true;
     return tank;
   }
@@ -77,6 +96,82 @@ export class Tank {
     creature.envExposure = new Map();
     creature.envTimer = Math.random() * ENV_CHANGE.INTERVAL;
     return creature;
+  }
+
+  // ---- 住んでいる子 ----
+
+  // 5匹いる(どこで暮らすか決める子がいる)
+  get crowded() {
+    return this.creatures.length > TANK_CAPACITY;
+  }
+
+  // 空きがある(卵がかえるぶんも数える)
+  get hasRoom() {
+    return this.creatures.length + this.eggs.count < TANK_CAPACITY;
+  }
+
+  // 別の水槽から来た子を迎える。位置は水槽の中ほどのどこか
+  addCreature(c) {
+    this.adopt(c);
+    c.x = 0.3 + Math.random() * 0.4;
+    c.z = 0.1 + Math.random() * 0.8;
+    c.meet = null;
+    c.leaving = false;
+    this.creatures.push(c);
+    this.dirty = true;
+    return c;
+  }
+
+  // 水槽から外す(標本にする・別の水槽へ移す)。交流の回数も消す
+  removeCreature(c) {
+    const i = this.creatures.indexOf(c);
+    if (i < 0) return false;
+    this.creatures.splice(i, 1);
+    this.social.forget(c);
+    for (const other of this.creatures) if (other.meet?.partner === c) other.meet = null;
+    if (this.focus === c) this.focus = null;
+    this.dirty = true;
+    return true;
+  }
+
+  // ---- 交流・交配・卵 ----
+
+  // 触れ合った2匹。同じ組の交流がたまっていて、空きがあれば交配する
+  met(a, b) {
+    this.dirty = true;
+    const hx = (a.x + b.x) / 2;
+    const hz = (a.z + b.z) / 2;
+    this.events.push({ type: 'meet', x: hx, z: hz, a, b });
+    if (this.social.count(a, b) < MATE.MEETS) return;
+    if (this.crowded || this.creatures.length + this.eggs.count > TANK_CAPACITY) return; // 5匹になる前まで。回数はそのまま
+    this.social.reset(a, b);
+    this.mate(a, b);
+  }
+
+  // 交配:どちらかが、しっぽの後ろの砂に卵を産む
+  mate(a, b, rng = this.random) {
+    const mother = rng() < 0.5 ? a : b;
+    const child = makeChild(a, b, makeRng(Math.floor(rng() * 4294967296)));
+    child.parents = [parentSnapshot(a), parentSnapshot(b)];
+    const tail = mother.points[mother.points.length - 1];
+    const before = mother.points[mother.points.length - 2];
+    const len = Math.hypot(tail.x - before.x, tail.z - before.z) || 1;
+    const x = tail.x + ((tail.x - before.x) / len) * EGG.BEHIND;
+    const z = tail.z + ((tail.z - before.z) / len) * EGG.BEHIND;
+    const egg = this.eggs.lay(x, z, mother, child);
+    this.events.push({ type: 'egg', x: egg.x, z: egg.z });
+    this.dirty = true;
+    return egg;
+  }
+
+  // 卵がかえる:その場所に、小さな赤ちゃん
+  hatch(egg) {
+    const baby = this.adopt(Creature.born({ ...egg.child, x: clamp(egg.x, 0.3, 0.7), z: egg.z }));
+    this.creatures.push(baby);
+    this.events.push({ type: 'hatch', x: egg.x, z: egg.z, creature: baby });
+    if (this.crowded) this.events.push({ type: 'crowded', creature: baby });
+    this.dirty = true;
+    return baby;
   }
 
   // 閉じていた間のぶん、藻を増やす(生き物と植物には何もしない)。
@@ -197,10 +292,15 @@ export class Tank {
     // 藻が減ったり増えたりしたら、動きの速さもゆっくり追いつく
     this.calm += (calmFor(this.algae.level) - this.calm) * Math.min(1, dt * 0.5);
     for (const c of this.creatures) {
-      c.pace = this.calm * (c === this.focus ? OBSERVED_PACE : 1);
+      const baby = lerp(GROW.BABY_PACE, 1, smoothstep(c.growth));
+      c.pace = this.calm * baby * (c === this.focus ? OBSERVED_PACE : 1);
       c.update(dt, t);
     }
     this.updateFood(dt);
+    const met = this.social.update(dt, this.creatures);
+    if (met) this.met(...met);
+    for (const egg of this.eggs.update(dt)) this.hatch(egg);
+    if (this.eggs.count) this.dirty = true;
     this.envClock += dt;
     while (this.envClock >= ENV_TICK) {
       this.envClock -= ENV_TICK;
@@ -230,13 +330,18 @@ export class Tank {
 
   toData() {
     return {
+      id: this.id,
       personaId: this.personaId,
+      name: this.name,
+      createdAt: this.createdAt,
       version: TANK_DATA_VERSION,
       seed: this.seed,
       lastSeenAt: this.lastSeenAt,
       creatures: this.creatures.map((c) => c.toJSON()),
       things: { ...this.things, algae: this.algae.toData(), plants: this.plants.toData(), soil: this.nutrients.toData() },
       env: copyEnv(this.env),
+      social: this.social.toData(),
+      eggs: this.eggs.toData(),
     };
   }
 }

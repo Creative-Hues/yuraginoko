@@ -1,4 +1,4 @@
-// 観察モードのボタン:もどる、エサ(4種)、消化させる、排泄させる。
+// 観察モードのボタン:もどる、この子のこと(標本・別の水槽へ)、エサ(4種)、消化させる、排泄させる。
 // 今の食事の段階に合うボタンだけを出す。1周したあとは、エサのボタンが薄くなってゆっくり戻る。
 import { el } from './dom.js';
 import { FOODS, FOOD_KEYS } from '../creature/genes.js';
@@ -7,7 +7,7 @@ import { lerp } from '../util/math.js';
 
 const REST_OPACITY = 0.25; // 休み始めのボタンの濃さ
 
-export function createObserveUi(root, { onBack, onFood, onDigest, onExcrete }) {
+export function createObserveUi(root, { onBack, onFood, onDigest, onExcrete, onCare }) {
   const foodButtons = FOOD_KEYS.map((key) =>
     el('button', { class: 'meal-btn', type: 'button', onclick: () => onFood(key) }, [
       el('span', { class: 'food-dot', style: { background: FOODS[key].color } }),
@@ -19,7 +19,8 @@ export function createObserveUi(root, { onBack, onFood, onDigest, onExcrete }) {
   const excrete = el('button', { class: 'meal-btn', type: 'button', text: '排泄させる', onclick: () => onExcrete() });
   const bar = el('div', { class: 'meal-bar' }, [foods, digest, excrete]);
   const back = el('button', { class: 'pill', type: 'button', text: 'もどる', onclick: () => onBack() });
-  root.replaceChildren(back, bar);
+  const care = el('button', { class: 'pill right', type: 'button', text: 'この子のこと', onclick: () => onCare() });
+  root.replaceChildren(back, care, bar);
 
   let shown = '';
   let opacity = -1;

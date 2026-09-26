@@ -469,3 +469,354 @@ body {
     transform: rotate(0deg);
   }
 }
+
+/* ---- フェーズ4 ---- */
+
+/* 右上・左下の、控えめなボタン */
+.pill.right {
+  left: auto;
+  right: calc(var(--safe-right) + 12px);
+}
+.pill.bottom {
+  top: auto;
+  bottom: calc(var(--safe-bottom) + 14px);
+  font-size: 13px;
+  background: rgba(244, 236, 255, 0.7);
+}
+
+.panel.wide {
+  max-width: 640px;
+}
+
+/* 入力欄(水槽の名前・標本の名前と説明文) */
+.text-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.field-label {
+  font-size: 13px;
+  font-weight: 800;
+  color: #d9ccef;
+}
+.text-input {
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 3px solid var(--ink);
+  border-radius: 14px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  font-size: max(16px, 1em) !important; /* iPhone で入力時に拡大されないように */
+  font-weight: 700;
+  resize: none;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* 水槽の棚 */
+.shelf {
+  margin-bottom: 18px;
+}
+.shelf-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.shelf-name {
+  padding: 3px 12px;
+  border: 3px solid var(--ink);
+  border-radius: 999px;
+  color: var(--ink);
+  font-weight: 900;
+  box-shadow: 2px 2px 0 var(--ink);
+  word-break: break-all;
+}
+.shelf-row {
+  display: flex;
+  gap: 14px;
+  padding: 0 8px;
+  overflow-x: auto;
+  align-items: flex-end;
+}
+.shelf-board {
+  height: 12px;
+  margin-top: -2px;
+  border: 3px solid var(--ink);
+  border-radius: 4px;
+  background: #ff9be0;
+  box-shadow: 3px 3px 0 var(--ink);
+}
+.tank-slot {
+  flex: none;
+  width: 104px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.tank-box {
+  position: relative;
+  width: 100px;
+  height: 70px;
+  padding: 0;
+  overflow: hidden;
+  border: 3px solid var(--ink);
+  border-radius: 8px 8px 4px 4px;
+  box-shadow: 3px 3px 0 var(--ink);
+  font: inherit;
+}
+.tank-box.current {
+  outline: 3px dashed var(--paper);
+  outline-offset: 3px;
+}
+.tank-box.add {
+  background: rgba(244, 236, 255, 0.12);
+  border-style: dashed;
+  border-color: rgba(244, 236, 255, 0.6);
+  box-shadow: none;
+  color: var(--paper);
+  font-size: 30px;
+  font-weight: 900;
+}
+.tank-box:active {
+  transform: translate(2px, 2px);
+}
+.tank-soil {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 26%;
+  border-top: 2px solid var(--ink);
+}
+.tank-dot {
+  position: absolute;
+  width: 16px;
+  height: 9px;
+  border: 2px solid var(--ink);
+  border-radius: 50% 60% 40% 50%;
+}
+.tank-dot.baby {
+  width: 9px;
+  height: 6px;
+}
+.tank-egg {
+  position: absolute;
+  bottom: 12%;
+  width: 9px;
+  height: 7px;
+  border: 2px solid var(--ink);
+  border-radius: 50%;
+  background: #ffe8f7;
+}
+.tank-name {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 100%;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--paper);
+}
+.tank-name span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rename-btn {
+  flex: none;
+  min-width: 30px;
+  min-height: 30px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--lime);
+  font-size: 16px;
+}
+
+/* すみかを決める */
+.pick-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.pick-card {
+  position: relative;
+  width: 108px;
+  height: 76px;
+  padding: 2px;
+  border: 3px solid var(--ink);
+  border-radius: 14px;
+  background: rgba(26, 15, 46, 0.9);
+  box-shadow: 3px 3px 0 var(--ink);
+}
+.pick-card[aria-pressed='true'] {
+  background: #4a2a70;
+  outline: 3px dashed var(--lime);
+  outline-offset: 2px;
+}
+.pick-card .pic {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.badge {
+  position: absolute;
+  left: 4px;
+  top: -10px;
+  padding: 1px 7px;
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  background: var(--lime);
+  color: var(--ink);
+  font-size: 10px;
+  font-weight: 900;
+}
+.home-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.panel p.home-note {
+  margin: 0 0 10px;
+}
+.pic-dot {
+  display: block;
+  width: 36px;
+  height: 36px;
+  margin: auto;
+  border: 3px solid var(--ink);
+  border-radius: 50%;
+}
+
+/* 標本の結晶 */
+.crystal {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 3 / 2;
+  clip-path: polygon(0% 48%, 17% 2%, 76% 0%, 100% 42%, 84% 100%, 21% 98%);
+  background:
+    linear-gradient(135deg, rgba(210, 255, 250, 0.2), rgba(160, 200, 255, 0.06) 45%, rgba(255, 190, 240, 0.14)),
+    #1c0f33;
+}
+.crystal::before {
+  /* 面の境目 */
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(118deg, transparent 49.4%, rgba(230, 255, 255, 0.35) 50%, transparent 50.6%),
+    linear-gradient(62deg, transparent 49.4%, rgba(230, 255, 255, 0.25) 50%, transparent 50.6%);
+  pointer-events: none;
+}
+.crystal .pic {
+  position: relative;
+  width: 86%;
+  height: auto;
+}
+.crystal-light {
+  /* ごくゆっくりゆらぐ光(姿は変えない) */
+  position: absolute;
+  inset: -30%;
+  background: radial-gradient(ellipse at 35% 30%, rgba(220, 255, 250, 0.3), transparent 45%),
+    radial-gradient(ellipse at 70% 75%, rgba(255, 200, 245, 0.18), transparent 50%);
+  mix-blend-mode: screen;
+  animation: crystal-light 18s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+@keyframes crystal-light {
+  from {
+    transform: translate(-4%, -3%);
+    opacity: 0.7;
+  }
+  to {
+    transform: translate(5%, 4%);
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .crystal-light {
+    animation: none;
+  }
+}
+.crystal.lead {
+  width: min(260px, 100%);
+  margin: 0 auto 14px;
+}
+.specimen-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 14px;
+}
+.specimen-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--paper);
+  font: inherit;
+}
+.specimen-name {
+  font-size: 13px;
+  font-weight: 800;
+  text-align: center;
+  word-break: break-all;
+}
+.panel p.specimen-owner {
+  margin-top: -8px;
+}
+.specimen-detail {
+  display: flex;
+  gap: 18px;
+  align-items: flex-start;
+}
+.specimen-detail .crystal.large {
+  flex: none;
+  width: min(300px, 45vw);
+}
+.specimen-info {
+  flex: 1;
+  min-width: 0;
+}
+.panel h1.specimen-title {
+  font-size: 24px;
+  word-break: break-all;
+}
+.panel p.specimen-note {
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--paper);
+}
+.parents {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.parent-row {
+  display: flex;
+  gap: 12px;
+}
+.crystal.small {
+  width: 120px;
+}
+.panel p.specimen-date {
+  font-size: 12px;
+}
+.specimen-info .btn {
+  white-space: nowrap;
+}

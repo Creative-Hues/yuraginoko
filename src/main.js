@@ -1,11 +1,32 @@
 import './style.css';
-import { addPersona, listPersonas, loadTank, markOpened, saveTank } from './storage/db.js';
+import {
+  addPersona,
+  listAllTanks,
+  listPersonas,
+  listSpecimens,
+  listTanks,
+  loadTank,
+  markOpened,
+  renameTank,
+  saveSpecimen,
+  saveTank,
+  saveTanks,
+  updateSpecimen,
+} from './storage/db.js';
 import { Tank } from './tank/tank.js';
+import { Creature } from './creature/creature.js';
+import { TANK_CAPACITY } from './creature/lifeConfig.js';
+import { portrait as creaturePortrait } from './creature/portrait.js';
+import { makeId } from './util/random.js';
 import { TankRenderer } from './tank/renderer.js';
 import { cleanMode, createTouchController, editMode, interactMode } from './tank/touch.js';
 import { ALGAE } from './tank/algae.js';
 import { renderWhoScreen } from './ui/whoScreen.js';
-import { renderTankList } from './ui/tankList.js';
+import { renderShelf, tankLabel } from './ui/shelf.js';
+import { renderHomeChoice } from './ui/homeUi.js';
+import { renderSpecimenDetail, renderSpecimenList } from './ui/specimenUi.js';
+import { renderTextDialog } from './ui/textDialog.js';
+import { el } from './ui/dom.js';
 import { createObserveUi } from './ui/observeUi.js';
 import { createEditUi } from './ui/editUi.js';
 import { showError, watchErrors } from './ui/errorBox.js';
@@ -27,11 +48,19 @@ const overlay = document.getElementById('overlay');
 const tankButton = document.getElementById('tank-button');
 const cleanButton = document.getElementById('clean-button');
 const editButton = document.getElementById('edit-button');
+const homeButton = document.getElementById('home-button');
 
 const renderer = new TankRenderer(canvas);
 renderer.onError = (err) => showError(err, '描画');
+// 卵がかえって5匹になったら、すみかを決める画面を出す(ほかの画面を開いているときは、左下のボタンだけ)
+renderer.onTankEvent = (e) => {
+  if (e.type !== 'crowded' || !current?.tank.crowded) return;
+  syncUi();
+  if (!overlay.hasChildNodes()) attempt('すみかを決める', () => showHome({ newborn: e.creature?.id }));
+};
 
-// persona, tank, keepSaved(true のときは保存しない:読み込みに失敗した水槽の元のデータを上書きしないため)
+// persona, tank, keepSaved(true のときは保存しない:読み込みに失敗した水槽の元のデータを上書きしないため)、
+// label(水槽の表示名)
 let current = null;
 let cleaning = false;
 let observing = null; // 観察中の生き物
@@ -72,6 +101,9 @@ const observeUi = createObserveUi(document.getElementById('observe-ui'), {
     if (observing && current) current.tank.excrete(observing);
     syncUi();
   },
+  onCare: () => {
+    if (observing) attempt('この子のこと', () => showHome({ selected: observing.id }));
+  },
 });
 
 // seen: 今この水槽を見ていたか(見ていた時刻として残す)
@@ -97,35 +129,61 @@ async function attempt(label, fn) {
   }
 }
 
-async function openPersona(persona) {
+// 観察・掃除・編集をやめて、ふつうの水槽に戻す
+async function resetModes() {
   await attempt('モードを戻す', () => {
     exitObserve();
     setCleaning(false);
     setEditing(false);
   });
+}
+
+// その人の水槽を開く。水槽が1つならそれを、2つ以上なら棚から選ぶ。まだ無ければ作る
+async function pickTank(persona) {
+  let tanks = [];
+  await attempt('水槽の一覧', async () => (tanks = await listTanks(persona.id)));
+  if (tanks.length === 0) return openTank(persona, null);
+  if (tanks.length === 1) return openTank(persona, tanks[0].id);
+  return showShelf({ only: persona, title: 'どの水槽を見ますか?' });
+}
+
+// tankId の水槽を開く。null なら新しい水槽(初期の環境で、新しい2匹)を作って開く
+async function openTank(persona, tankId) {
+  await resetModes();
   await saveCurrent();
 
   let data = null;
   let tank = null;
   let keepSaved = false;
-  if (!(await attempt('読み込み', async () => (data = await loadTank(persona.id))))) keepSaved = true;
+  if (tankId && !(await attempt('読み込み', async () => (data = await loadTank(tankId))))) keepSaved = true;
   const built = await attempt('水槽の準備', () => {
-    tank = data ? Tank.fromData(data) : Tank.createNew(persona.id);
+    tank = data ? Tank.fromData(data) : Tank.createNew(persona.id, tankId ? { id: tankId } : undefined);
   });
   if (!built) {
     // 読めなかった水槽は、その場だけの水槽で開く。元のデータは上書きしない
-    tank = Tank.createNew(persona.id);
+    tank = Tank.createNew(persona.id, tankId ? { id: tankId } : undefined);
     keepSaved = true;
   }
   if (data && built) await attempt('藻', () => tank.catchUp(Date.now(), fakeDays));
 
-  current = { persona, tank, keepSaved };
+  current = { persona, tank, keepSaved, label: '' };
   await saveCurrent(true);
   await attempt('開いた時刻', () => markOpened(persona.id));
   await attempt('背景の準備', () => renderer.setTank(tank));
-  tankButton.textContent = `${persona.name} の水槽`;
+  await refreshTankButton();
   await attempt('ボタン', () => syncUi());
   closeOverlay();
+}
+
+// 左上のボタン:「〈人〉の水槽」。水槽が2つ以上か名前があれば「〈人〉・〈水槽の名前〉」
+async function refreshTankButton() {
+  if (!current) return;
+  const { persona, tank } = current;
+  let tanks = [];
+  await attempt('水槽の一覧', async () => (tanks = await listTanks(persona.id)));
+  const index = Math.max(0, tanks.findIndex((t) => t.id === tank.id));
+  current.label = tankLabel(tank, index);
+  tankButton.textContent = tanks.length > 1 || tank.name ? `${persona.name}・${current.label}` : `${persona.name} の水槽`;
 }
 
 // ---- 掃除モード ----
@@ -240,6 +298,7 @@ function exitObserve() {
 function syncUi() {
   const tank = current?.tank;
   tankButton.hidden = !tank || !!observing || editing;
+  homeButton.hidden = !tank?.crowded || !!observing || editing || cleaning;
   cleanButton.hidden = !tank || !!observing || editing; // 藻の量に関係なく、いつでも掃除できる
   editButton.hidden = !tank || !!observing;
   if (editing && tank) {
@@ -271,24 +330,172 @@ async function showWho({ canGoBack = false } = {}) {
   const personas = await listPersonas();
   renderWhoScreen(overlay, {
     personas,
-    onPick: openPersona,
-    onCreate: async (name) => openPersona(await addPersona(name)),
+    onPick: (p) => attempt('水槽をひらく', () => pickTank(p)),
+    onCreate: (name) => attempt('水槽をひらく', async () => pickTank(await addPersona(name))),
     onBack: canGoBack ? closeOverlay : null,
   });
 }
 
-async function showList() {
+// ---- 水槽の棚 ----
+// only: その人の棚だけを出す(「今は誰?」で水槽が2つ以上あったとき)
+async function showShelf({ only = null, title } = {}) {
+  await saveCurrent();
   const personas = await listPersonas();
-  renderTankList(overlay, {
-    personas,
-    currentId: current?.persona.id,
-    onPick: openPersona,
-    onAdd: () => showWho({ canGoBack: true }),
-    onClose: closeOverlay,
+  const tanks = await listAllTanks();
+  const groups = personas
+    .map((persona, index) => ({ persona, index, tanks: tanks.filter((t) => t.personaId === persona.id) }))
+    .filter((g) => (only ? g.persona.id === only.id : g.tanks.length > 0 || g.persona.id === current?.persona.id));
+  const again = () => showShelf({ only, title });
+  renderShelf(overlay, {
+    title,
+    groups,
+    currentTankId: current?.tank.id,
+    onOpen: (persona, rec) => attempt('水槽をひらく', () => openTank(persona, rec.id)),
+    onAddTank: (persona) =>
+      attempt('水槽をふやす', async () => {
+        const tank = Tank.createNew(persona.id);
+        await saveTank(tank.toData());
+        await openTank(persona, tank.id);
+      }),
+    onRename: (persona, rec, index) => showRename(rec, index, again),
+    onSpecimens: (persona) => attempt('標本', () => showSpecimens(persona, again)),
+    onOther: () => showWho({ canGoBack: !!current }),
+    onClose: current ? closeOverlay : null,
   });
 }
 
-tankButton.addEventListener('click', showList);
+function showRename(rec, index, back) {
+  renderTextDialog(overlay, {
+    title: '水槽の名前',
+    fields: [{ key: 'name', label: '名前', value: rec.name ?? '', placeholder: tankLabel({}, index) }],
+    onCancel: back,
+    onOk: ({ name }) =>
+      attempt('名前をつける', async () => {
+        // 開いている水槽は、中の名前も変える(次の保存で元に戻らないように)
+        if (current?.tank.id === rec.id) {
+          current.tank.name = name;
+          await saveCurrent();
+        } else {
+          await renameTank(rec.id, name);
+        }
+        await refreshTankButton();
+        await back();
+      }),
+  });
+}
+
+// ---- 標本 ----
+async function showSpecimens(persona, back) {
+  const specimens = await listSpecimens(persona.id);
+  renderSpecimenList(overlay, {
+    persona,
+    specimens,
+    onOpen: (s) => showSpecimen(s, () => attempt('標本', () => showSpecimens(persona, back))),
+    onBack: back,
+  });
+}
+
+function showSpecimen(specimen, back) {
+  renderSpecimenDetail(overlay, {
+    specimen,
+    onBack: back,
+    onEdit: () =>
+      renderTextDialog(overlay, {
+        title: '名前と説明',
+        fields: [
+          { key: 'name', label: '名前', value: specimen.name },
+          { key: 'note', label: '説明', value: specimen.note, multiline: true },
+        ],
+        onCancel: () => showSpecimen(specimen, back),
+        onOk: (values) =>
+          attempt('名前と説明', async () => {
+            const next = (await updateSpecimen(specimen.id, values)) ?? specimen;
+            showSpecimen(next, back);
+          }),
+      }),
+  });
+}
+
+// ---- すみかを決める(標本にする・別の水槽へ移す) ----
+// selected: 最初から選んでおく子の id、newborn: 生まれたばかりの子の id
+async function showHome({ selected = null, newborn = null } = {}) {
+  if (!current) return;
+  await resetModes();
+  const { persona, tank } = current;
+  // 移せる水槽:同じ人の、空きがある水槽(卵がかえるぶんも数える)
+  const targets = [];
+  for (const [i, t] of (await listTanks(persona.id)).entries()) {
+    if (t.id === tank.id) continue;
+    if ((t.creatures?.length ?? 0) + (t.eggs?.length ?? 0) < TANK_CAPACITY) targets.push({ id: t.id, label: tankLabel(t, i) });
+  }
+  renderHomeChoice(overlay, {
+    creatures: tank.creatures.map((c) => ({ id: c.id, data: c.toJSON(), newborn: c.id === newborn })),
+    selectedId: selected,
+    targets,
+    crowded: tank.crowded,
+    onSpecimen: (id) => showSpecimenForm(id, () => showHome({ selected: id, newborn })),
+    onNewTank: (id) => attempt('新しい水槽へ', () => moveCreature(id, null)),
+    onMove: (id, tankId) => attempt('別の水槽へ', () => moveCreature(id, tankId)),
+    onLater: () => {
+      closeOverlay();
+      syncUi();
+    },
+  });
+}
+
+function showSpecimenForm(id, back) {
+  const c = current?.tank.creatures.find((x) => x.id === id);
+  if (!c) return back();
+  const url = creaturePortrait(c.toJSON(), 240, 160);
+  renderTextDialog(overlay, {
+    title: '標本にする',
+    lead: el('div', { class: 'crystal lead' }, [url ? el('img', { class: 'pic', src: url, alt: '' }) : null, el('span', { class: 'crystal-light' })]),
+    fields: [
+      { key: 'name', label: '名前(なくてもだいじょうぶ)', value: '' },
+      { key: 'note', label: '説明(なくてもだいじょうぶ)', value: '', multiline: true },
+    ],
+    okText: '標本にする',
+    onCancel: back,
+    onOk: ({ name, note }) => attempt('標本にする', () => makeSpecimen(c, name, note)),
+  });
+}
+
+// 標本にする:その瞬間の姿を写して保存し、水槽から外す。光に包まれて、結晶の中に収まる
+async function makeSpecimen(c, name, note) {
+  const { persona, tank } = current;
+  if (!tank.creatures.includes(c)) return;
+  const specimen = { id: makeId(), personaId: persona.id, tankId: tank.id, name, note, madeAt: Date.now(), creature: c.toJSON() };
+  tank.removeCreature(c);
+  await saveSpecimen(specimen, current.keepSaved ? null : tank.toData());
+  renderer.farewells.add(c, 'crystal');
+  closeOverlay();
+  syncUi();
+}
+
+// 別の水槽へ移す。tankId が null なら、新しい水槽(初期の環境で、この子だけ)を作る
+async function moveCreature(id, tankId) {
+  const { persona, tank } = current;
+  const c = tank.creatures.find((x) => x.id === id);
+  if (!c) return;
+  let target;
+  if (tankId) {
+    const data = await loadTank(tankId);
+    if (!data) return;
+    target = Tank.fromData(data);
+  } else {
+    target = Tank.createEmpty(persona.id);
+  }
+  target.addCreature(new Creature(c.toJSON()));
+  tank.removeCreature(c);
+  await saveTanks(current.keepSaved ? [target.toData()] : [tank.toData(), target.toData()]);
+  renderer.farewells.add(c, 'move');
+  closeOverlay();
+  await refreshTankButton();
+  syncUi();
+}
+
+homeButton.addEventListener('click', () => attempt('すみかを決める', () => showHome()));
+tankButton.addEventListener('click', () => attempt('水槽の棚', () => showShelf()));
 
 // iPhone の Safari で、2本指の操作が画面の拡大にならないように
 document.addEventListener('gesturestart', (e) => e.preventDefault());
@@ -300,7 +507,7 @@ let lastTapEnd = 0;
 document.addEventListener(
   'touchend',
   (e) => {
-    if (e.target === canvas || e.target instanceof HTMLInputElement) return;
+    if (e.target === canvas || e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
     const now = performance.now();
     if (now - lastTapEnd < DOUBLE_TAP_MS && e.cancelable) e.preventDefault();
     lastTapEnd = now;
@@ -333,6 +540,16 @@ document.addEventListener('visibilitychange', () => {
   updateRunning();
 });
 window.addEventListener('pagehide', () => saveCurrent());
+
+// 開発中の確認用(公開版には入らない)
+if (import.meta.env.DEV) {
+  window.__aquarium = {
+    renderer,
+    get current() {
+      return current;
+    },
+  };
+}
 
 updateRunning();
 showWho();

@@ -13,7 +13,9 @@ import {
 import { createBehavior, pauseBehavior, startSeek, stopSeek, updateBehavior } from './behavior.js';
 import { bodyPoints, createBody, updateBody } from './body.js';
 import { makeId, makeRng, randomSeed } from '../util/random.js';
-import { clamp, smoothstep } from '../util/math.js';
+import { clamp, lerp, smoothstep } from '../util/math.js';
+import { normalizeQuirks } from './breeding.js';
+import { GROW } from './lifeConfig.js';
 
 // 撫でたと数えるのに必要な、生き物の上をなぞった距離(px)
 const STROKE_MIN_DIST = 24;
@@ -59,6 +61,13 @@ export class Creature {
     this.z = clamp(data.z ?? 0.5);
     this.heading = typeof data.heading === 'number' ? data.heading : data.dir === -1 ? Math.PI : 0;
     this.meal = loadMeal(data.meal);
+    // 生まれてからの育ち具合(0 = 生まれたて〜1 = 大人)。古いデータには無いので、大人
+    this.growth = typeof data.growth === 'number' && Number.isFinite(data.growth) ? clamp(data.growth) : 1;
+    this.quirks = normalizeQuirks(data.quirks); // 変異で生えた特徴(にじみ・欠け・余分な突起)
+    this.mutations = Array.isArray(data.mutations) ? data.mutations.filter((m) => m && typeof m === 'object').map((m) => ({ ...m })) : [];
+    // 両親の写し(わかる場合)。標本画面で親の姿を出す
+    this.parents = Array.isArray(data.parents) ? data.parents.filter((p) => p && typeof p === 'object' && p.genes).slice(0, 2) : [];
+    this.bornAt = Number(data.bornAt) || null;
 
     // ここから下は保存しない(開き直すと、底を這うところから始まる)
     this.lift = 0;
@@ -67,7 +76,7 @@ export class Creature {
     this.pace = 1; // 動きの速さの倍率
     this.behavior = createBehavior();
     this.body = createBody(this.heading);
-    this.points = bodyPoints(this.body, this.x, this.z);
+    this.points = bodyPoints(this.body, this.x, this.z, this.size);
     this.expressed = expressGenes(this.genes, 0, this.seed);
     this.touch = {
       clear: 0, // 一時的に透ける量
@@ -80,6 +89,7 @@ export class Creature {
       shrinkVel: 0,
       cringe: 0, // 体のすくみ
     };
+    this.meet = null; // 触れ合っている最中 { partner, t, seconds }
     this.shift = null; // 環境で変わっている途中 { drift, progress, seconds }
     this.shiftGlow = 0; // 変わる瞬間の、体の光(1 → 0)
     this.shiftGlowSeconds = 1;
@@ -101,8 +111,42 @@ export class Creature {
     });
   }
 
+  // 交配で生まれた赤ちゃん
+  static born({ genes, quirks, mutations, parents, x, z, heading }) {
+    return new Creature({
+      id: makeId(),
+      seed: randomSeed(),
+      genes,
+      quirks,
+      mutations,
+      parents,
+      bornAt: Date.now(),
+      growth: 0,
+      x,
+      z,
+      heading: heading ?? (Math.random() < 0.5 ? Math.PI : 0),
+    });
+  }
+
+  // 体の大きさ(大人 = 1)。育つにつれて、なめらかに大きくなる
+  get size() {
+    return lerp(GROW.BABY_SIZE, 1, smoothstep(this.growth));
+  }
+
+  get adult() {
+    return this.growth >= 1;
+  }
+
   update(dt, t) {
     this.clock += dt * this.pace;
+    if (this.growth < 1) {
+      this.growth = Math.min(1, this.growth + dt / GROW.SECONDS);
+      this.onChange?.();
+    }
+    if (this.meet) {
+      this.meet.t += dt;
+      if (this.meet.t >= this.meet.seconds) this.meet = null;
+    }
     this.expressed = expressGenes(this.genes, t, this.seed, this.expressed);
     updateBehavior(this, this.expressed, dt);
     if (!(this.behavior.pause > 0)) updateBody(this.body, this.heading, dt); // 止まっている間は、体の形もそのまま
@@ -120,7 +164,7 @@ export class Creature {
     for (const g of tc.glows) g.age += dt;
     if (tc.glows.length && tc.glows[0].age > GLOW_LIFE) tc.glows = tc.glows.filter((g) => g.age < GLOW_LIFE);
 
-    this.points = bodyPoints(this.body, this.x, this.z, 1 - 0.12 * smoothstep(tc.cringe), this.points);
+    this.points = bodyPoints(this.body, this.x, this.z, this.size * (1 - 0.12 * smoothstep(tc.cringe)), this.points);
   }
 
   // 撫でている最中。dist は指が動いた距離(px)、u は触れた体の場所(0 = しっぽ〜1 = 頭)
@@ -263,6 +307,11 @@ export class Creature {
       z: this.z,
       heading: this.heading,
       meal: this.meal.drift ? { ...this.meal, drift: { ...this.meal.drift } } : { ...this.meal },
+      growth: this.growth,
+      quirks: this.quirks.map((q) => ({ ...q })),
+      mutations: this.mutations.map((m) => ({ ...m })),
+      parents: this.parents.map((p) => ({ ...p, genes: { ...p.genes }, quirks: (p.quirks ?? []).map((q) => ({ ...q })) })),
+      bornAt: this.bornAt,
     };
   }
 }
