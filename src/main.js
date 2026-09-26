@@ -129,8 +129,9 @@ function scrub(sx, sy, dist) {
   const { W, H } = renderer;
   const r = ALGAE.BRUSH * H;
   const amount = dist > 0 ? (ALGAE.ERASE_SPEED * dist) / r : 0.15; // 触れただけでも少し消える
-  tank.scrub(sx / W, sy / H, r / W, r / H, amount);
-  if (tank.algae.level < ALGAE.DONE_LEVEL) {
+  const changed = tank.scrub(sx / W, sy / H, r / W, r / H, amount);
+  // 見える藻がすべてなくなったら、見えないほど薄い残りも消して、掃除を終える
+  if (changed && !tank.algae.hasVisible()) {
     tank.clearAlgae();
     setCleaning(false);
   }
@@ -162,7 +163,7 @@ function exitObserve() {
 function syncUi() {
   const tank = current?.tank;
   tankButton.hidden = !tank || !!observing;
-  cleanButton.hidden = !tank || !!observing || !(cleaning || tank.algae.level >= ALGAE.SHOW_LEVEL);
+  cleanButton.hidden = !tank || !!observing; // 藻の量に関係なく、いつでも掃除できる
   if (observing) {
     observing.refreshMeal();
     observeUi.update(observing);
@@ -208,6 +209,21 @@ tankButton.addEventListener('click', showList);
 
 // iPhone の Safari で、2本指の操作が画面の拡大にならないように
 document.addEventListener('gesturestart', (e) => e.preventDefault());
+
+// ダブルタップでの拡大も止める(CSS の touch-action が効かないときの念のため)。
+// 水槽のキャンバスと入力欄はそのまま。2回目のタップだけを止めるので、1回目のボタンは押せる
+const DOUBLE_TAP_MS = 350;
+let lastTapEnd = 0;
+document.addEventListener(
+  'touchend',
+  (e) => {
+    if (e.target === canvas || e.target instanceof HTMLInputElement) return;
+    const now = performance.now();
+    if (now - lastTapEnd < DOUBLE_TAP_MS && e.cancelable) e.preventDefault();
+    lastTapEnd = now;
+  },
+  { passive: false },
+);
 
 // 水槽の様子(位置など)は動き続けるので、一定時間ごとに保存する
 setInterval(() => saveCurrent(), SAVE_INTERVAL);

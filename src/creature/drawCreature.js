@@ -5,6 +5,8 @@
 // 節が曲がって手前や奥を向くと、そのぶん体が縮んで見える(Uターンの立体感)。
 // 体の形は「節ごとの楕円をつなげた形」で作るので、曲がっても重なっても輪郭が崩れない。
 import { patternMix } from './genes.js';
+import { drawDigestEffect } from './digestEffects.js';
+import { MEAL } from './creature.js';
 import { clamp, lerp, smoothstep } from '../util/math.js';
 
 const TAU = Math.PI * 2;
@@ -394,6 +396,12 @@ export function drawCreature(ctx, scratch, c, pts, L, t, pixelScale = 1, detail 
 
   if (detail > 0.01) drawDetail(ctx, c, spine, spikes, bodyPath, bodyH * sAvg, Ls, lw, H1, H2, bodyA, detail);
 
+  // 消化中は、食べたエサごとのエフェクトが体の中に見える
+  if (c.meal.stage === MEAL.digesting) {
+    const body = { path: bodyPath, point: (u, v) => bodyPoint(spine, u, v), length: Ls, height: bodyH * sAvg, seed: c.seed };
+    drawDigestEffect(ctx, body, c.meal.food, c.meal.progress);
+  }
+
   // 輪郭
   drawOutline(ctx, scratch, bodyPath, bodyShape(spine, { ...bodyBase, grow: lw }), outline);
 
@@ -427,18 +435,6 @@ export function drawCreature(ctx, scratch, c, pts, L, t, pixelScale = 1, detail 
     rg.addColorStop(0, `hsla(${H2}, 100%, 82%, ${a})`);
     rg.addColorStop(0.5, `hsla(${H2}, 100%, 65%, ${a * 0.45})`);
     rg.addColorStop(1, `hsla(${H2}, 100%, 60%, 0)`);
-    ctx.fillStyle = rg;
-    ctx.fillRect(p.x - r, p.y - r, r * 2, r * 2);
-  }
-
-  // 消化中は、おなかのあたりが体の色でほのかに光る
-  if (c.digestGlow > 0.01) {
-    const p = bodyPoint(spine, 0.5, 0.1);
-    const r = bodyH * sAvg * 1.3;
-    const a = 0.4 * c.digestGlow;
-    const rg = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r);
-    rg.addColorStop(0, `hsla(${H1}, 100%, 75%, ${a})`);
-    rg.addColorStop(1, `hsla(${H1}, 100%, 60%, 0)`);
     ctx.fillStyle = rg;
     ctx.fillRect(p.x - r, p.y - r, r * 2, r * 2);
   }

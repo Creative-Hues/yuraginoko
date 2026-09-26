@@ -73,6 +73,12 @@ export function startTurn(c) {
   };
 }
 
+// その場で seconds 秒ほどぴたりと止まる(向きも体の形も変えない)。止まったあとは、元の行動の続きから
+export function pauseBehavior(c, seconds) {
+  c.behavior.pause = seconds;
+  c.behavior.speed = 0;
+}
+
 // 決まった場所 (x, z) へ向かい始める
 export function startSeek(c, x, z) {
   const b = c.behavior;
@@ -102,6 +108,17 @@ export function seekDistance(c) {
 export function updateBehavior(c, g, dt) {
   const b = c.behavior;
   const pace = c.pace ?? 1;
+
+  // 止まっている間:動かず、底に降りて、体はゆっくり揺れるだけ
+  if (b.pause > 0) {
+    b.pause -= dt;
+    b.speed = 0;
+    c.lift += (0 - c.lift) * Math.min(1, dt * 2.5);
+    b.waveAmp += (WAVE.rest.amp - b.waveAmp) * Math.min(1, dt * 3);
+    c.phase += dt * WAVE.rest.speed * pace;
+    return;
+  }
+
   b.time += dt;
   const seeking = b.mode === 'seek';
 

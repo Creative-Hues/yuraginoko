@@ -46,12 +46,15 @@ export const TOUCH_DRIFT = {
 // エサの種類(観察モードであげる)。消化すると、遺伝子の基本値が少しだけ動く。
 // - hueToward: 基本の色(hue)を、この色相へ近いほうの回り方で寄せる
 // - glow:      光り方(glow)を強くする(+1)
-// color / shine は、エサの粒とボタンの見た目
+// - color / shine: エサの粒・ボタン・排泄の粒の見た目
+// - digest: 消化中に体の中に見えるエフェクト(effect の種類は src/creature/digestEffects.js)
+//     seep: 光がじわっとにじんで広がる / wave: 波が頭からしっぽへ流れる
+//     sparkle: 小さな粒がぱちぱち弾ける / pulse: 体全体が脈を打つように明るくなる
 export const FOODS = {
-  red: { label: '赤いエサ', color: '#ff3b5c', hueToward: 0.0 },
-  blue: { label: '青いエサ', color: '#3b7bff', hueToward: 0.62 },
-  yellow: { label: '黄色いエサ', color: '#ffd23b', hueToward: 0.16 },
-  glow: { label: '光るエサ', color: '#c6ff3d', shine: true, glow: +1 },
+  red: { label: '赤いエサ', color: '#ff3b5c', hueToward: 0.0, digest: { effect: 'seep', color: '#ff3b5c' } },
+  blue: { label: '青いエサ', color: '#3b7bff', hueToward: 0.62, digest: { effect: 'wave', color: '#3b9bff' } },
+  yellow: { label: '黄色いエサ', color: '#ffd23b', hueToward: 0.16, digest: { effect: 'sparkle', color: '#ffe066' } },
+  glow: { label: '光るエサ', color: '#c6ff3d', shine: true, glow: +1, digest: { effect: 'pulse', color: '#d8ff6a' } },
 };
 export const FOOD_KEYS = Object.keys(FOODS);
 

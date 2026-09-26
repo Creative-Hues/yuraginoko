@@ -64,3 +64,26 @@ describe('藻', () => {
     expect(calmFor(0.5)).toBeLessThan(1);
   });
 });
+
+describe('掃除', () => {
+  it('擦ると、見えないほど薄い残りまで消しきれる', () => {
+    const a = new Algae(null, 11);
+    a.grow(14);
+    expect(a.hasVisible()).toBe(true);
+    // 画面全体を、弱めの力で何往復か擦る
+    for (let pass = 0; pass < 8; pass++) {
+      for (let y = 0; y <= 1; y += 0.05) for (let x = 0; x <= 1; x += 0.03) a.erase(x, y, 0.05, 0.1, 0.2);
+    }
+    expect(a.hasVisible()).toBe(false);
+    expect(a.level).toBe(0);
+  });
+
+  it('見えない薄い藻だけのときは「見える藻はない」', () => {
+    const a = new Algae(null, 3);
+    a.grow(0.5); // 半日ぶん:どのマスも見える濃さに届かない
+    expect(a.level).toBeGreaterThan(0);
+    expect(a.hasVisible()).toBe(false);
+    a.grow(7);
+    expect(a.hasVisible()).toBe(true);
+  });
+});

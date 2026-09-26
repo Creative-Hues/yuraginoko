@@ -102,7 +102,7 @@ export class Tank {
 
   excrete(creature) {
     const at = creature.excrete();
-    if (at) this.food.leave(at.x, at.z, creature.genes.hue);
+    if (at) this.food.leave(at);
     return !!at;
   }
 

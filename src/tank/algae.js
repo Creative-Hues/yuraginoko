@@ -21,8 +21,9 @@ export const ALGAE = {
   MIN_WEIGHT: 0.35, // つきにくいマスでも、最大でこれくらいはつく
   BRUSH: 0.1, // 掃除のブラシの半径(画面の高さに対する割合)
   ERASE_SPEED: 1.25, // ブラシの中心を、半径ぶん擦ったときに減る量
-  SHOW_LEVEL: 0.1, // 全体がこれ以上になったら、スポンジのボタンを出す(うっすらすぎて見えないうちは出さない)
-  DONE_LEVEL: 0.03, // 全体がこれより少なくなったら、残りも消して掃除を終える
+  // マスの量がこれより少ないと、画面には描かれない(描くときのいちばん薄い段)。
+  // 擦ってこれより少なくなったマスは 0 にし、見える藻が1つもなくなったら掃除を終える
+  VISIBLE_MIN: 0.06,
   CALM_MIN: 0.5, // 藻がいっぱいのときの、生き物の動きの速さ(ふだん = 1)
 };
 
@@ -106,6 +107,12 @@ export class Algae {
     this.updateLevel();
   }
 
+  // 画面に見える藻が、どこかに残っているか
+  hasVisible() {
+    for (let i = 0; i < N; i++) if (this.cells[i] >= ALGAE.VISIBLE_MIN) return true;
+    return false;
+  }
+
   updateLevel() {
     let sum = 0;
     for (let i = 0; i < N; i++) sum += this.cells[i];
@@ -143,7 +150,7 @@ export class Algae {
         const d2 = dx * dx + dy * dy;
         if (d2 >= 1) continue;
         const v = this.cells[i] - amount * (1 - d2);
-        this.cells[i] = v < 0.01 ? 0 : v;
+        this.cells[i] = v < ALGAE.VISIBLE_MIN ? 0 : v; // 見えないほど薄くなったら、消しきる
         changed = true;
       }
     }
@@ -176,7 +183,7 @@ export function calmFor(level) {
 
 const BANDS = [
   // [この濃さ以上, 色]
-  [0.06, [120, 150, 60]],
+  [ALGAE.VISIBLE_MIN, [120, 150, 60]],
   [0.3, [96, 128, 44]],
   [0.58, [74, 104, 36]],
   [0.82, [58, 84, 30]],

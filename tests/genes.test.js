@@ -114,3 +114,17 @@ describe('エサ', () => {
     expect(FOODS.glow.hueToward).toBeUndefined();
   });
 });
+
+import { DIGEST_EFFECT_TYPES } from '../src/creature/digestEffects.js';
+
+describe('消化のエフェクト', () => {
+  it('どのエサにも、ある種類のエフェクトと色が決まっている', () => {
+    for (const key of FOOD_KEYS) {
+      const d = FOODS[key].digest;
+      expect(DIGEST_EFFECT_TYPES).toContain(d.effect);
+      expect(d.color).toMatch(/^#[0-9a-f]{6}$/i);
+    }
+    // 4種類とも違うエフェクト
+    expect(new Set(FOOD_KEYS.map((k) => FOODS[k].digest.effect)).size).toBe(4);
+  });
+});

@@ -87,6 +87,7 @@ export class TankRenderer {
       { name: 'droppings', draw: () => this.tank?.food.drawDroppings(this.ctx, this) },
       { name: 'pellets', draw: () => this.tank?.food.drawPellets(this.ctx, this, this.time) },
       { name: 'creatures', draw: () => this.drawCreatures() },
+      { name: 'droppingsEmerging', draw: () => this.tank?.food.drawDroppings(this.ctx, this, true) },
       { name: 'bubbles', draw: () => this.bubbles.draw(this.ctx) },
       { name: 'light', draw: () => this.drawLight() },
       { name: 'particlesFront', draw: () => this.particles.draw(this.ctx, this, this.time, false) },

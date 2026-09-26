@@ -12,6 +12,9 @@
 
 * {
   box-sizing: border-box;
+  /* ダブルタップで画面が拡大されないように(iPhone は user-scalable=no を無視するため)。
+     水槽のキャンバスは下の #tank で touch-action: none にして、指の操作はすべて自分で扱う */
+  touch-action: manipulation;
 }
 
 html,
@@ -280,7 +283,8 @@ body {
   background: var(--paper);
   color: var(--ink);
   font: inherit;
-  font-size: 16px; /* 16px 未満だと iPhone で入力時に画面が拡大されてしまう */
+  /* 16px 未満だと iPhone で入力時に画面が拡大されてしまうので、ほかの指定に負けないようにする */
+  font-size: max(16px, 1em) !important;
   font-weight: 700;
   -webkit-user-select: text;
   user-select: text;

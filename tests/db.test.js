@@ -113,6 +113,16 @@ describe('フェーズ2の保存', () => {
     expect(tank.excrete(c)).toBe(true);
     expect(c.meal.stage).toBe(MEAL.resting);
     expect(tank.food.droppings.length).toBeGreaterThan(0);
+    expect(tank.food.droppings.every((d) => d.food === 'blue')).toBe(true); // 粒は食べたエサの色
+    // その場でぴたりと止まって、粒はしっぽの先から出る
+    expect(c.behavior.pause).toBeGreaterThan(0);
+    expect(c.touch.cringe).toBe(1); // きゅっと縮む
+    const tail = { ...c.points[c.points.length - 1] };
+    tank.update(1, 1);
+    // きゅっと縮むぶん(体の長さの 12% まで)しか動かない
+    const moved = Math.hypot(c.points[c.points.length - 1].x - tail.x, c.points[c.points.length - 1].z - tail.z);
+    expect(moved).toBeLessThan(0.24 * 0.12 + 1e-6);
+    expect(tank.food.droppings.every((d) => d.x0 === tail.x)).toBe(true);
 
     await saveTank(tank.toData());
     const loaded = Tank.fromData(await loadTank(p.id));

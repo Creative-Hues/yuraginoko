@@ -1,7 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { angleDiff, bodyPoints, createBody, updateBody, BODY_WORLD_LENGTH } from '../src/creature/body.js';
 import { startTurn } from '../src/creature/behavior.js';
 import { Creature } from '../src/creature/creature.js';
+import { GENE_KEYS } from '../src/creature/genes.js';
+import { makeRng } from '../src/util/random.js';
 
 const DT = 1 / 60;
 
@@ -27,19 +29,24 @@ describe('体の節とUターン', () => {
   });
 
   it('Uターンでは向きが反対になり、途中で奥行きも変わる', () => {
-    const c = Creature.create({ x: 0.5, z: 0.3 });
-    c.heading = 0;
-    c.body = createBody(0);
-    c.behavior.duration = 99; // 途中で別の行動に移らないように
-    startTurn(c);
-    const z0 = c.z;
-    let maxDz = 0;
-    for (let t = 0; t < 3; t += DT) {
-      c.update(DT, t);
-      maxDz = Math.max(maxDz, Math.abs(c.z - z0));
+    // 乱数を固定して、毎回同じ動きにする(行動の切り替えや Uターンの長さに乱数を使っているため)
+    const random = vi.spyOn(Math, 'random').mockImplementation(makeRng(2024));
+    try {
+      const genes = Object.fromEntries(GENE_KEYS.map((k) => [k, 0.5]));
+      const c = new Creature({ id: 't', seed: 1, genes, x: 0.5, z: 0.3, heading: 0 });
+      c.behavior.duration = 99; // 途中で別の行動に移らないように
+      startTurn(c);
+      const z0 = c.z;
+      let maxDz = 0;
+      for (let t = 0; t < 3; t += DT) {
+        c.update(DT, t);
+        maxDz = Math.max(maxDz, Math.abs(c.z - z0));
+      }
+      expect(Math.cos(c.heading)).toBeLessThan(-0.8);
+      expect(maxDz).toBeGreaterThan(0.03);
+    } finally {
+      random.mockRestore();
     }
-    expect(Math.cos(c.heading)).toBeLessThan(-0.8);
-    expect(maxDz).toBeGreaterThan(0.03);
   });
 
   it('前の保存データ(左右の向き dir だけ)も読み込める', () => {

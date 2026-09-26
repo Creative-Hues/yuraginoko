@@ -10,7 +10,7 @@ import {
   nudgeGenes,
   randomGenes,
 } from './genes.js';
-import { createBehavior, startSeek, stopSeek, updateBehavior } from './behavior.js';
+import { createBehavior, pauseBehavior, startSeek, stopSeek, updateBehavior } from './behavior.js';
 import { bodyPoints, createBody, updateBody } from './body.js';
 import { makeId, makeRng, randomSeed } from '../util/random.js';
 import { clamp, smoothstep } from '../util/math.js';
@@ -18,6 +18,7 @@ import { clamp, smoothstep } from '../util/math.js';
 // 撫でたと数えるのに必要な、生き物の上をなぞった距離(px)
 const STROKE_MIN_DIST = 24;
 const GLOW_LIFE = 1.2; // 撫でた場所の光が消えるまで(秒)
+const EXCRETE_PAUSE = 2; // 排泄するとき、その場で止まる時間(秒)
 
 // 食事の段階:エサを選ぶ → 向かって食べる → 消化させる → 消化中 → 排泄させる → 休む → エサを選ぶ …
 export const MEAL = {
@@ -79,7 +80,6 @@ export class Creature {
       shrinkVel: 0,
       cringe: 0, // 体のすくみ
     };
-    this.digestGlow = 0; // 消化中の、おなかのほのかな光(0〜1)
     this.screen = null; // 描画時に画面上の体の形が入る(当たり判定用)
     this.canvas = null; // 描画用の下書きキャンバス
     this.scratch = null;
@@ -102,7 +102,7 @@ export class Creature {
     this.clock += dt * this.pace;
     this.expressed = expressGenes(this.genes, t, this.seed, this.expressed);
     updateBehavior(this, this.expressed, dt);
-    updateBody(this.body, this.heading, dt);
+    if (!(this.behavior.pause > 0)) updateBody(this.body, this.heading, dt); // 止まっている間は、体の形もそのまま
     this.updateDigest(dt);
 
     const tc = this.touch;
@@ -190,26 +190,27 @@ export class Creature {
   // 消化中は、数秒かけて遺伝子の基本値を少しずつ動かす
   updateDigest(dt) {
     const m = this.meal;
-    if (m.stage !== MEAL.digesting) {
-      this.digestGlow = Math.max(0, this.digestGlow - dt);
-      return;
-    }
+    if (m.stage !== MEAL.digesting) return;
     const next = Math.min(1, m.progress + dt / DIGEST_SECONDS);
     nudgeGenes(this.genes, m.drift, next - m.progress);
     m.progress = next;
-    this.digestGlow = Math.sin(Math.PI * next);
     if (next >= 1) this.meal = { stage: MEAL.digested, food: m.food };
     this.onChange?.();
   }
 
-  // 排泄させて、休みに入る。粒を残す場所(しっぽ)を返す
+  // 排泄させて、休みに入る。その場で少し止まって、体がきゅっと縮む。
+  // 粒を出す場所(しっぽの先)と、押し出す向き、食べたエサを返す
   excrete(now = Date.now()) {
     if (this.meal.stage !== MEAL.digested) return null;
+    const food = this.meal.food;
     this.meal = { stage: MEAL.resting, restUntil: now + MEAL_REST_SECONDS * 1000 };
-    this.touch.cringe = 0.35;
+    this.touch.cringe = 1;
+    pauseBehavior(this, EXCRETE_PAUSE);
     this.onChange?.();
     const tail = this.points[this.points.length - 1];
-    return { x: tail.x, z: tail.z };
+    const before = this.points[this.points.length - 2];
+    const len = Math.hypot(tail.x - before.x, tail.z - before.z) || 1;
+    return { x: tail.x, z: tail.z, dx: (tail.x - before.x) / len, dz: (tail.z - before.z) / len, food };
   }
 
   toJSON() {
