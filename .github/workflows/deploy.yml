@@ -1,0 +1,55 @@
+# main に push されたら、テスト → ビルド → GitHub Pages へ公開 を自動で行う
+name: GitHub Pages へ公開
+
+on:
+  push:
+    branches: [main]
+  # Actions 画面から手動でも実行できるようにする
+  workflow_dispatch:
+
+# Pages へ公開するために必要な権限
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 公開が重ならないようにする(実行中の公開は途中で止めない)
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      # package-lock.json のとおりにインストールする
+      - run: npm ci
+
+      # テストが失敗したら公開しない
+      - run: npm run test
+
+      - run: npm run build
+
+      - uses: actions/configure-pages@v6
+
+      # ビルド結果(dist)を公開用にアップロードする
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
