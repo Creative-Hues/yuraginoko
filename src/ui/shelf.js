@@ -51,7 +51,7 @@ function miniTank(rec, index, { current, onOpen, onRename, own }) {
 }
 
 // groups: [{ persona, index(人の順番), tanks: [保存データ] }]
-// viewerId: 今の人(その人の段だけ、開く・ふやす・名前と設定・やりとり・色・消す。ほかの人の水槽は「のぞく」)
+// viewerId: 今の人(その人の段だけ、開く・ふやす・名前と設定・やりとり・色・音・消す。ほかの人の水槽は「のぞく」)
 export function renderShelf(root, {
   title = '水槽',
   lead,
@@ -66,6 +66,7 @@ export function renderShelf(root, {
   onCollection,
   onRequests,
   onColor,
+  onSound,
   onDeletePersona,
   onOther,
   onClose,
@@ -78,6 +79,7 @@ export function renderShelf(root, {
         el('div', { class: 'shelf-chips' }, [
           own && onRequests ? el('button', { class: 'chip', type: 'button', text: 'やりとり', onclick: () => onRequests(persona) }) : null,
           own && onColor ? el('button', { class: 'chip', type: 'button', text: '名前の色', onclick: () => onColor(persona, index) }) : null,
+          own && onSound ? el('button', { class: 'chip', type: 'button', text: '音', onclick: () => onSound(persona) }) : null,
           el('button', { class: 'chip', type: 'button', text: '図鑑', onclick: () => onCollection(persona) }),
           el('button', { class: 'chip', type: 'button', text: '標本', onclick: () => onSpecimens(persona) }),
         ]),

@@ -39,6 +39,7 @@ export class Farewells {
         if (center && !f.flashed && f.t > 2.3) {
           f.flashed = true;
           renderer.sparkles.add(center.x, center.y, 8, c.expressed.hue2 * 360, 1);
+          renderer.onFarewell?.('crystal', c);
         }
         f.fx += dt;
         if (center && f.t > 3 && f.fx > 0.25) {

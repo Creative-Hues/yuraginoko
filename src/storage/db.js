@@ -2,7 +2,8 @@
 //
 // ストア
 // - personas:  { id, name, createdAt, lastOpenedAt, closedToRequests(おねがいを受け付けない。無ければ受け付ける),
-//              color(名前の背景色。無ければ登録順で決まる色) }
+//              color(名前の背景色。無ければ登録順で決まる色)、
+//              sound(音の設定 { on, ambient, effects }。無ければ音なし) }
 // - aquaria:   水槽 { id, personaId, name, createdAt, version, seed, creatures: [...], things: {...}, savedAt, ... }(index: personaId)
 // - specimens: 標本 { id, personaId, name, note, madeAt, creature: {...}, ... }(index: personaId)
 // - moments:   図鑑(残した瞬間){ id, personaId, tankId, creatureId, name, note, takenAt, creature: {...}, look: {...} }(index: personaId)
@@ -126,6 +127,15 @@ export async function setPersonaColor(id, color) {
   const persona = await getPersona(id);
   if (!persona) return null;
   const next = { ...persona, color };
+  await run('personas', 'readwrite', (s) => s().put(next));
+  return next;
+}
+
+// 音の設定(人ごと)
+export async function setPersonaSound(id, sound) {
+  const persona = await getPersona(id);
+  if (!persona) return null;
+  const next = { ...persona, sound: { on: !!sound?.on, ambient: Number(sound?.ambient), effects: Number(sound?.effects) } };
   await run('personas', 'readwrite', (s) => s().put(next));
   return next;
 }

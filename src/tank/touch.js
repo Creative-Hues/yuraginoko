@@ -58,6 +58,7 @@ export const interactMode = {
       st.fxDist = 0;
       renderer.addRipple(st.x, st.y, 0.7);
       renderer.addBubbles(st.x, st.y, 1 + Math.floor(Math.random() * 2));
+      env.handlers.onTouchSound?.('stroke', st.sx);
     }
   },
   up(st, cancelled, env) {
@@ -66,6 +67,7 @@ export const interactMode = {
     if (!cancelled && !st.longPressed && quick && st.target) {
       st.target.creature.flick(st.target.u);
       env.renderer.addBubbles(st.x, st.y, 3 + Math.floor(Math.random() * 3));
+      env.handlers.onTouchSound?.('flick', st.sx);
     }
     for (const c of st.stroked) c.endStroke();
   },
@@ -109,7 +111,9 @@ export const cleanMode = {
       env.renderer.addBubbles(st.x, st.y, 1);
     }
   },
-  up() {},
+  up(st, cancelled, env) {
+    env.handlers.onScrubEnd?.();
+  },
 };
 
 // 環境編集モード:植物を触る → 選んで、そのままドラッグで動かす。砂の上をタップ → 植える(選んでいる種類があれば)。

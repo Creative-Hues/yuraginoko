@@ -25,6 +25,7 @@ import {
   saveTanks,
   setPersonaClosed,
   setPersonaColor,
+  setPersonaSound,
   updateMoment,
   updateSpecimen,
   updateTank,
@@ -52,6 +53,9 @@ import { showError, watchErrors } from './ui/errorBox.js';
 import { eggMood } from './tank/eggs.js';
 import { nowInfluences, patternChange } from './tank/influence.js';
 import { sensitivityLines } from './creature/sensitivity.js';
+import { chirpPitch, normalizeSound, sound, useAmbientSession } from './audio/sound.js';
+import { SOUNDS } from './audio/soundConfig.js';
+import { renderSoundSettings } from './ui/soundUi.js';
 
 watchErrors();
 
@@ -72,6 +76,7 @@ const cleanButton = document.getElementById('clean-button');
 const editButton = document.getElementById('edit-button');
 const homeButton = document.getElementById('home-button');
 const requestButton = document.getElementById('request-button');
+const soundButton = document.getElementById('sound-button');
 const peekBar = document.getElementById('peek-bar');
 const peekText = document.getElementById('peek-text');
 const peekBack = document.getElementById('peek-back');
@@ -80,11 +85,30 @@ const renderer = new TankRenderer(canvas);
 renderer.onError = (err) => showError(err, '描画');
 // 卵がかえって5匹になったら、すみかを決める画面を出す(ほかの画面を開いているときは、左下のボタンだけ)
 renderer.onTankEvent = (e) => {
+  tankSound(e);
   // 見ていた卵がかえったら、生まれた赤ちゃんをそのまま見る
   if (e.type === 'hatch' && observingEgg && e.egg === observingEgg) enterObserve(e.creature);
   if (e.type !== 'crowded' || !current?.tank.crowded) return;
   syncUi();
   if (!overlay.hasChildNodes()) attempt('すみかを決める', () => showHome({ newborn: e.creature?.id }));
+};
+
+// 水槽で起きたことの音(交流の鳴き声・卵・食べる)
+function tankSound(e) {
+  if (e.type === 'meet') {
+    // 2匹それぞれの声で、少しずらして
+    sound.play('chirp', { x: e.a.x, pitch: chirpPitch(e.a.seed) });
+    sound.play('chirp', { x: e.b.x, pitch: chirpPitch(e.b.seed), delay: SOUNDS.chirp.delay });
+  } else if (e.type === 'egg' || e.type === 'hatch') {
+    sound.play('sparkle', { x: e.x });
+  } else if (e.type === 'eat') {
+    sound.play('eat', { x: e.x });
+  }
+}
+
+// 結晶ができあがった瞬間に、澄んだ音
+renderer.onFarewell = (kind, c) => {
+  if (kind === 'crystal') sound.play('clear', { x: c.x });
 };
 
 // persona(水槽の持ち主), tank, keepSaved(true のときは保存しない:読み込みに失敗した水槽の元のデータを上書きしないため)、
@@ -117,6 +141,8 @@ const touch = createTouchController(canvas, renderer, {
   },
   onPinchClose: () => exitObserve(),
   onScrub: scrub,
+  onScrubEnd: () => sound.scrubEnd(),
+  onTouchSound: (kind, sx) => sound.play(kind, { x: sx / renderer.W }),
   // 環境編集モード
   onPlantPick: (plant) => selectPlant(plant),
   onPlantDrag: (plant, x, y) => {
@@ -130,7 +156,7 @@ const touch = createTouchController(canvas, renderer, {
 const observeUi = createObserveUi(document.getElementById('observe-ui'), {
   onBack: () => exitObserve(),
   onFood: (food) => {
-    if (observing && current) current.tank.feed(observing, food);
+    if (observing && current && current.tank.feed(observing, food)) sound.play('drop', { x: observing.x });
     syncUi();
   },
   onDigest: () => {
@@ -212,6 +238,7 @@ async function openTank(persona, tankId, { notices = true } = {}) {
   if (data && built) await attempt('藻', () => tank.catchUp(Date.now(), fakeDays));
 
   current = { persona, tank, keepSaved, label: '' };
+  applySound();
   touch.setMode(interactMode);
   observeUi.setPeek(null);
   await saveCurrent(true);
@@ -246,6 +273,7 @@ async function peekTank(owner, tankId) {
     label: '',
     peek: { viewer, backTankId, asked: new Set(asked.filter((r) => r.status === 'asked').map((r) => r.creatureId)) },
   };
+  applySound();
   touch.setMode(peekMode);
   await attempt('背景の準備', () => renderer.setTank(tank));
   peekText.textContent = `${owner.name}の水槽をのぞいています`;
@@ -470,9 +498,11 @@ function scrub(sx, sy, dist) {
   const r = ALGAE.BRUSH * H;
   const amount = dist > 0 ? (ALGAE.ERASE_SPEED * dist) / r : 0.15; // 触れただけでも少し消える
   const changed = tank.scrub(sx / W, sy / H, r / W, r / H, amount);
+  if (dist > 0) sound.scrubbing(dist, sx / W);
   // 見える藻がすべてなくなったら、見えないほど薄い残りも消して、掃除を終える
   if (changed && !tank.algae.hasVisible()) {
     tank.clearAlgae();
+    sound.scrubEnd();
     setCleaning(false);
   }
 }
@@ -594,6 +624,9 @@ function syncUi() {
   requestButton.hidden = !tank || !incomingCount || watching || editing || cleaning || peeking;
   cleanButton.hidden = !tank || watching || editing || peeking; // 藻の量に関係なく、いつでも掃除できる
   editButton.hidden = !tank || watching || peeking;
+  soundButton.hidden = !tank || watching || editing;
+  const on = String(!!me() && normalizeSound(me().sound).on);
+  if (soundButton.getAttribute('aria-pressed') !== on) soundButton.setAttribute('aria-pressed', on);
   if (editing && tank) {
     // 抜かれた植物は選ばない
     if (selectedPlant && !tank.plants.list.includes(selectedPlant)) selectPlant(null);
@@ -671,6 +704,7 @@ async function showShelf({ only = null, title, viewer: who = null } = {}) {
       }),
     onRename: (persona, rec, index) => showTankSettings(persona, rec, index, again),
     onColor: (persona, index) => showColor(persona, index, again),
+    onSound: (persona) => showSoundSettings(persona, again),
     onDeletePersona: (persona) => confirmDeletePersona(persona, again),
     onSpecimens: (persona) => attempt('標本', () => showSpecimens(persona, again, own(persona))),
     onCollection: (persona) => attempt('図鑑', () => showCollection(persona, again, own(persona))),
@@ -732,6 +766,7 @@ async function closeCurrent() {
   await resetModes();
   current = null;
   incomingCount = 0;
+  applySound();
   renderer.setTank(null);
   syncUi();
 }
@@ -807,6 +842,62 @@ function showColor(persona, index, back) {
   });
 }
 
+// ---- 音(人ごと。最初は音なし) ----
+
+// 今の人(のぞいているときは、のぞいている人)の設定で鳴らす。水槽を開いていなければ鳴らさない
+function applySound() {
+  const who = me();
+  sound.setSettings(who ? who.sound : null);
+}
+
+// 今の人の設定を変えて保存する(画面の中の人の記録も合わせる)
+async function saveSound(persona, next) {
+  const saved = await setPersonaSound(persona.id, normalizeSound(next));
+  for (const p of [current?.persona, current?.peek?.viewer]) if (p?.id === persona.id) p.sound = saved?.sound ?? next;
+  persona.sound = saved?.sound ?? next;
+}
+
+// 右上のボタン:音のオン・オフだけ
+soundButton.addEventListener('click', () => {
+  const who = me();
+  if (!who) return;
+  const next = { ...normalizeSound(who.sound), on: !normalizeSound(who.sound).on };
+  who.sound = next;
+  applySound();
+  sound.gesture(); // 押したこと自体を、最初のタップとして使う
+  syncUi();
+  attempt('音の設定', () => saveSound(who, next));
+});
+
+// 棚の「音」:鳴らす・鳴らさないと、2つの音量。動かしている間はその場で聞こえ方が変わる(今の人のときだけ)
+function showSoundSettings(persona, back) {
+  const before = normalizeSound(persona.sound);
+  const live = () => me()?.id === persona.id;
+  const preview = (s) => {
+    if (!live()) return;
+    sound.setSettings(s);
+    sound.gesture();
+  };
+  renderSoundSettings(overlay, {
+    persona,
+    sound: before,
+    ambientOk: useAmbientSession(),
+    status: () => sound.status(),
+    onChange: preview,
+    onCancel: () => {
+      if (live()) applySound();
+      back();
+    },
+    onOk: (next) =>
+      attempt('音の設定', async () => {
+        await saveSound(persona, next);
+        if (live()) applySound();
+        syncUi();
+        await back();
+      }),
+  });
+}
+
 // ---- 標本 ----
 // own: 自分の標本(なおす・えらんで消す)。selected: えらぶモードで開く(確認から戻ったとき)
 async function showSpecimens(persona, back, own, selected = null) {
@@ -862,9 +953,10 @@ function showSpecimen(specimen, back, own) {
 const SNAP_WAIT = 900; // 光が引いてから、名前とメモの画面を出すまで(ms)
 let keeping = false; // 光っている間は、もう一度押しても重ねない
 
-// 写真を撮ったような、静かな光(DOM と CSS だけ。音・振動なし)
+// 写真を撮ったような、静かな光と、澄んだ短い音(振動なし)
 function snapLight() {
   const light = el('div', { class: 'snap-light', 'aria-hidden': 'true' });
+  sound.play('clear');
   document.body.append(light);
   setTimeout(() => light.remove(), 2000);
   return new Promise((resolve) => setTimeout(resolve, SNAP_WAIT));
@@ -1103,11 +1195,16 @@ document.addEventListener(
 // 水槽の様子(位置など)は動き続けるので、一定時間ごとに保存する
 setInterval(() => saveCurrent(), SAVE_INTERVAL);
 
-// 見えていない間と、縦向きで案内を出している間は、描画を止めて電池を節約する
+// 見えていない間と、縦向きで案内を出している間は、描画と音を止めて電池を節約する
 const portrait = window.matchMedia('(orientation: portrait)');
 function updateRunning() {
-  if (document.visibilityState === 'visible' && !portrait.matches) renderer.start();
-  else renderer.stop();
+  if (document.visibilityState === 'visible' && !portrait.matches) {
+    renderer.start();
+    sound.resume();
+  } else {
+    renderer.stop();
+    sound.pause();
+  }
 }
 portrait.addEventListener('change', updateRunning);
 

@@ -1,6 +1,7 @@
 import 'fake-indexeddb/auto';
 import { afterEach, describe, expect, it } from 'vitest';
-import { addPersona, closeDB, listPersonas, loadTank, saveTank } from '../src/storage/db.js';
+import { addPersona, closeDB, getPersona, listPersonas, loadTank, saveTank, setPersonaSound } from '../src/storage/db.js';
+import { normalizeSound } from '../src/audio/sound.js';
 import { TANK_DATA_VERSION, Tank } from '../src/tank/tank.js';
 
 afterEach(async () => {
@@ -140,5 +141,17 @@ describe('フェーズ2の保存', () => {
     tank.feed(c, 'red');
     const loaded = Tank.fromData(JSON.parse(JSON.stringify(tank.toData())));
     expect(loaded.creatures[0].meal).toEqual({ stage: MEAL.fed, food: 'red' });
+  });
+});
+
+describe('音の設定', () => {
+  it('音の設定は人ごとに保存され、設定の無い人は音なし', async () => {
+    const a = await addPersona('テスト1');
+    const b = await addPersona('テスト2');
+    expect(normalizeSound((await getPersona(a.id)).sound).on).toBe(false);
+    await setPersonaSound(a.id, { on: true, ambient: 0.2, effects: 0.8 });
+    expect((await getPersona(a.id)).sound).toEqual({ on: true, ambient: 0.2, effects: 0.8 });
+    expect((await getPersona(a.id)).name).toBe('テスト1');
+    expect(normalizeSound((await getPersona(b.id)).sound).on).toBe(false);
   });
 });

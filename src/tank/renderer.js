@@ -92,6 +92,7 @@ export class TankRenderer {
     this.onError = null; // 描画中にエラーが起きたとき(描画は止めずに続ける)
     this.onTankEvent = null; // 水槽で起きたことを、画面の側にも知らせる(5匹になったときなど)
     this.farewells = new Farewells(); // 水槽を離れる子の演出
+    this.onFarewell = null; // 離れる演出の節目(結晶ができあがった瞬間など)
     this.shrinkWhenBack = false; // 観察モードから戻りきったら、大きくした下書きを返す
     this.bgDirty = false; // 環境が変わって、背景の描き直しが必要
     this.selectedPlant = null; // 編集モードで選んでいる植物
