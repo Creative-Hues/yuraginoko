@@ -1331,3 +1331,37 @@ body {
   width: auto;
   min-width: 120px;
 }
+
+/* データの書き出し・読み込み */
+.backup-part {
+  margin-top: 16px;
+}
+.panel .backup-part h2 {
+  margin: 0 0 6px;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--paper);
+}
+.backup-part .row {
+  margin-top: 8px;
+}
+label.btn {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+/* ファイルを選ぶ欄は見せず、ボタン(label)から開く */
+.file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+.backup-choices {
+  flex-wrap: wrap;
+}
+.backup-foot {
+  display: flex;
+  justify-content: flex-end;
+}

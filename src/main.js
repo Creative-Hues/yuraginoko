@@ -7,7 +7,10 @@ import {
   deleteRequest,
   deleteSpecimens,
   deleteTank,
+  exportAll,
   giveCreature,
+  importAll,
+  isDataEmpty,
   listAllTanks,
   listMoments,
   listPersonas,
@@ -29,7 +32,9 @@ import {
   updateMoment,
   updateSpecimen,
   updateTank,
+  DB_VERSION,
 } from './storage/db.js';
+import { backupFileName, countBackup, isEmptyCounts, makeBackup, parseBackup } from './storage/backup.js';
 import { Tank } from './tank/tank.js';
 import { Creature } from './creature/creature.js';
 import { TANK_CAPACITY } from './creature/lifeConfig.js';
@@ -56,6 +61,7 @@ import { sensitivityLines } from './creature/sensitivity.js';
 import { chirpPitch, normalizeSound, sound, useAmbientSession } from './audio/sound.js';
 import { SOUNDS } from './audio/soundConfig.js';
 import { renderSoundSettings } from './ui/soundUi.js';
+import { renderBackupMenu, renderImportFailed, renderImportPreview } from './ui/backupUi.js';
 
 watchErrors();
 
@@ -669,6 +675,7 @@ async function showWho({ canGoBack = false } = {}) {
     onPick: (p) => attempt('水槽をひらく', () => pickTank(p)),
     onCreate: (name, color) => attempt('水槽をひらく', async () => pickTank(await addPersona(name, color))),
     onBack: canGoBack ? closeOverlay : null,
+    onBackup: () => attempt('データの書き出し・読み込み', () => showBackup(() => showWho({ canGoBack }))),
   });
 }
 
@@ -709,6 +716,7 @@ async function showShelf({ only = null, title, viewer: who = null } = {}) {
     onSpecimens: (persona) => attempt('標本', () => showSpecimens(persona, again, own(persona))),
     onCollection: (persona) => attempt('図鑑', () => showCollection(persona, again, own(persona))),
     onOther: () => showWho({ canGoBack: !!current }),
+    onBackup: () => attempt('データの書き出し・読み込み', () => showBackup(again)),
     onClose: current ? closeOverlay : null,
   });
 }
@@ -896,6 +904,88 @@ function showSoundSettings(persona, back) {
         await back();
       }),
   });
+}
+
+// ---- データの書き出し・読み込み ----
+
+// 開いたときに書き出すファイルを先に作っておく(iPhone では、押してすぐでないと共有シートが開かないことがあるため)
+async function showBackup(back) {
+  await saveCurrent(); // 開いている水槽の今の様子も入れる
+  const stores = await exportAll();
+  const counts = countBackup(stores);
+  const json = JSON.stringify(makeBackup(stores, { dbVersion: DB_VERSION }));
+  const file = new File([json], backupFileName(), { type: 'application/json' });
+  const again = () => attempt('データの書き出し・読み込み', () => showBackup(back));
+  renderBackupMenu(overlay, {
+    counts,
+    empty: isEmptyCounts(counts),
+    onExport: () => attempt('書き出す', () => shareFile(file)),
+    onPickFile: (f) => attempt('読み込む', () => previewImport(f, again)),
+    onBack: back,
+  });
+}
+
+// 共有シート(「ファイルに保存」)で渡す。使えなければダウンロード。共有をやめたときは何もしない
+async function shareFile(file) {
+  if (navigator.canShare?.({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file] });
+      return;
+    } catch (err) {
+      if (err?.name === 'AbortError') return;
+      // 共有できなかったときは、ダウンロードで
+    }
+  }
+  const url = URL.createObjectURL(file);
+  const a = el('a', { href: url, download: file.name });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
+
+// ファイルの中身を確かめてから見せる。読めないファイルなら、今のデータには何もしない
+async function previewImport(file, back) {
+  let parsed = { ok: false };
+  try {
+    parsed = parseBackup(await file.text());
+  } catch {
+    // 読めないファイル
+  }
+  if (!parsed.ok) return renderImportFailed(overlay, { onBack: back });
+  const empty = await isDataEmpty();
+  const preview = () =>
+    renderImportPreview(overlay, {
+      counts: parsed.counts,
+      empty,
+      onImport: () => attempt('読み込む', () => runImport(parsed.data, 'merge')),
+      onAdd: () => attempt('読み込む', () => runImport(parsed.data, 'merge')),
+      onReplace: () =>
+        renderConfirm(overlay, {
+          title: '今のデータと入れかえる',
+          lines: ['今のデータは、このファイルの中身に入れかわります。'],
+          okText: '入れかえる',
+          cancelText: 'もどる',
+          onCancel: preview,
+          onOk: () => attempt('読み込む', () => runImport(parsed.data, 'replace')),
+        }),
+      onCancel: back,
+    });
+  preview();
+}
+
+// 読み込んで「今は誰?」へ。開いている水槽は先に保存して画面から外す(古い水槽を書き戻さないように)。
+// 読み込みは1つのトランザクションなので、失敗したときは今のデータのまま
+async function runImport(data, mode) {
+  await saveCurrent();
+  await closeCurrent();
+  try {
+    await importAll(data, mode);
+  } catch (err) {
+    console.error('読み込み', err);
+    return renderImportFailed(overlay, { onBack: () => attempt('今は誰?', () => showWho()) });
+  }
+  await showWho();
 }
 
 // ---- 標本 ----

@@ -1,7 +1,8 @@
 // 「今は誰?」画面。登録済みの人から選ぶか、新しく名前を入れる(名前の背景色も選べる)。
+// すみに、控えめな「データの書き出し・読み込み」(まだ誰もいないときにも使える)。
 import { colorOf, colorPicker, el, personaColor } from './dom.js';
 
-export function renderWhoScreen(root, { personas, onPick, onCreate, onBack }) {
+export function renderWhoScreen(root, { personas, onPick, onCreate, onBack, onBackup }) {
   const input = el('input', {
     type: 'text',
     maxlength: '20',
@@ -55,6 +56,10 @@ export function renderWhoScreen(root, { personas, onPick, onCreate, onBack }) {
     el('p', { class: 'color-label', text: '名前の色' }),
     picker,
     onBack && el('div', { class: 'row' }, [el('button', { class: 'btn sub', type: 'button', text: 'もどる', onclick: onBack })]),
+    onBackup &&
+      el('div', { class: 'backup-foot' }, [
+        el('button', { class: 'quiet-btn', type: 'button', text: 'データの書き出し・読み込み', onclick: onBackup }),
+      ]),
   ]);
   root.replaceChildren(panel);
   syncGo();

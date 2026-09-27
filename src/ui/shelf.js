@@ -69,6 +69,7 @@ export function renderShelf(root, {
   onSound,
   onDeletePersona,
   onOther,
+  onBackup,
   onClose,
 }) {
   const shelves = groups.map(({ persona, index, tanks }) => {
@@ -114,6 +115,11 @@ export function renderShelf(root, {
     el('h1', { text: title }),
     lead ? el('p', { text: lead }) : null,
     ...shelves,
+    onBackup
+      ? el('div', { class: 'backup-foot' }, [
+          el('button', { class: 'quiet-btn', type: 'button', text: 'データの書き出し・読み込み', onclick: onBackup }),
+        ])
+      : null,
     el('div', { class: 'row spread' }, [
       onOther ? el('button', { class: 'btn sub', type: 'button', text: 'ほかの人', onclick: onOther }) : el('span'),
       onClose ? el('button', { class: 'btn sub', type: 'button', text: 'とじる', onclick: onClose }) : null,

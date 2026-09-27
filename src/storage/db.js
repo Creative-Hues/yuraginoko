@@ -13,9 +13,10 @@
 //
 // 後のフェーズでストアを足すときは、DB_VERSION を上げて upgrade() に手順を追加する。
 import { makeId } from '../util/random.js';
+import { BACKUP_STORES, countBackup, isEmptyCounts, planImport } from './backup.js';
 
 const DB_NAME = 'aquarium';
-const DB_VERSION = 4;
+export const DB_VERSION = 4;
 
 let dbPromise = null;
 
@@ -360,4 +361,59 @@ export async function pruneRequests() {
     for (const r of gone) s().delete(r.id);
   });
   return gone.length;
+}
+
+// ---- 書き出し・読み込み ----
+
+// 書き出すストアを、1つのトランザクションでまとめて読む
+export async function exportAll() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(BACKUP_STORES, 'readonly');
+    const out = {};
+    for (const name of BACKUP_STORES) {
+      tx.objectStore(name).getAll().onsuccess = (e) => {
+        out[name] = e.target.result;
+      };
+    }
+    tx.oncomplete = () => resolve(out);
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+// 今のデータが空か(人も水槽も標本も図鑑もない)
+export async function isDataEmpty() {
+  return isEmptyCounts(countBackup(await exportAll()));
+}
+
+// 読み込む(mode: 'merge' 今のデータに追加する / 'replace' 今のデータと入れかえる)。
+// 今のデータを読むところから書き込むところまで1つのトランザクションで行い、途中で失敗したら何も変わらない
+export async function importAll(incoming, mode) {
+  const db = await openDB();
+  const stores = [...BACKUP_STORES, 'tanks'];
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(stores, 'readwrite');
+    const existing = {};
+    let pending = BACKUP_STORES.length;
+    const write = () => {
+      try {
+        const plan = planImport(existing, incoming, mode);
+        if (mode === 'replace') for (const name of stores) tx.objectStore(name).clear();
+        for (const name of BACKUP_STORES) for (const rec of plan[name]) tx.objectStore(name).put(rec);
+      } catch (err) {
+        tx.abort();
+        reject(err);
+      }
+    };
+    for (const name of BACKUP_STORES) {
+      tx.objectStore(name).getAll().onsuccess = (e) => {
+        existing[name] = e.target.result;
+        if (--pending === 0) write();
+      };
+    }
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
 }
