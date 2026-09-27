@@ -13,10 +13,10 @@ import { wave } from '../util/noise.js';
 import { drawSoilLive, lightLook, renderScenery, renderVignette } from './scenery.js';
 import { drawPlant, plantBox } from './drawPlants.js';
 import { Bubbles, Particles, Ripples, Sparkles } from './effects.js';
-import { ENV_CHANGE, PLANT_FADE } from './envConfig.js';
+import { PLANT_FADE } from './envConfig.js';
 import { AlgaeView } from './algae.js';
 import { Farewells } from './farewell.js';
-import { MEET } from '../creature/lifeConfig.js';
+import { EGG, MEET } from '../creature/lifeConfig.js';
 
 const TAU = Math.PI * 2;
 const MAX_DPR = 2;
@@ -87,6 +87,7 @@ export class TankRenderer {
     this.last = 0;
     this.camera = { x: 0, y: 0, zoom: 1 }; // 見ている中心(水槽の座標)と拡大率
     this.focus = null; // 観察中の生き物
+    this.focusEgg = null; // 観察中の卵
     this.onFrame = null; // 毎フレーム呼ぶ(ボタンの表示の更新など)
     this.onError = null; // 描画中にエラーが起きたとき(描画は止めずに続ける)
     this.onTankEvent = null; // 水槽で起きたことを、画面の側にも知らせる(5匹になったときなど)
@@ -131,6 +132,7 @@ export class TankRenderer {
     if (this.tank && this.tank !== tank) this.releaseCreatureCanvases();
     this.tank = tank;
     this.focus = null;
+    this.focusEgg = null;
     this.camera = { x: this.W / 2, y: this.H / 2, zoom: 1 };
     this.selectedPlant = null;
     this.bubbles.clear();
@@ -164,9 +166,18 @@ export class TankRenderer {
   }
 
   // ---- カメラ ----
+  // 観察する生き物に寄る(null で戻る)
   setFocus(creature) {
-    if (this.focus && !creature) this.shrinkWhenBack = true;
+    if ((this.focus || this.focusEgg) && !creature) this.shrinkWhenBack = true;
     this.focus = creature;
+    this.focusEgg = null;
+  }
+
+  // 卵に少し寄る(null で戻る)。卵には画面の位置を書き込まない(卵はそのまま保存されるため)
+  setFocusEgg(egg) {
+    if ((this.focus || this.focusEgg) && !egg) this.shrinkWhenBack = true;
+    this.focusEgg = egg;
+    this.focus = null;
   }
 
   // 観察モードでの寄り具合(0 = ふだん〜1 = いちばん寄った)
@@ -174,16 +185,22 @@ export class TankRenderer {
     return smoothstep((this.camera.zoom - 1) / (OBSERVE_ZOOM - 1));
   }
 
+  // タッチ位置にある卵
+  eggAt(x, y) {
+    return this.tank?.eggs.at(this, x, y, EGG.HIT_PAD) ?? null;
+  }
+
   updateCamera(dt) {
     const cam = this.camera;
     let tx = this.W / 2;
     let ty = this.H / 2;
     let tz = 1;
-    const center = this.focus?.screen?.center;
+    const egg = this.focusEgg && this.tank?.eggs.list.includes(this.focusEgg) ? this.focusEgg : null;
+    const center = egg ? this.tank.eggs.center(this, egg) : this.focus?.screen?.center;
     if (center) {
       tx = center.x;
       ty = center.y;
-      tz = OBSERVE_ZOOM;
+      tz = egg ? EGG.FOCUS_ZOOM : OBSERVE_ZOOM;
     }
     const k = 1 - Math.exp(-dt * CAMERA_SPEED);
     cam.zoom += (tz - cam.zoom) * k;
@@ -194,7 +211,7 @@ export class TankRenderer {
     const hh = this.H / (2 * cam.zoom);
     cam.x = clamp(cam.x, hw, this.W - hw);
     cam.y = clamp(cam.y, hh, this.H - hh);
-    if (this.shrinkWhenBack && !this.focus && cam.zoom < 1.01) {
+    if (this.shrinkWhenBack && !this.focus && !this.focusEgg && cam.zoom < 1.01) {
       this.shrinkWhenBack = false;
       this.releaseCreatureCanvases();
     }
@@ -223,7 +240,7 @@ export class TankRenderer {
     // 生き物が動く範囲(ノッチの内側)
     this.left = safe.left + this.W * 0.02;
     this.right = this.W - safe.right - this.W * 0.02;
-    if (!this.focus) this.camera = { x: this.W / 2, y: this.H / 2, zoom: 1 };
+    if (!this.focus && !this.focusEgg) this.camera = { x: this.W / 2, y: this.H / 2, zoom: 1 };
     this.bubbles.clear();
     this.renderBackground();
     const v = this.vignette;
@@ -342,12 +359,13 @@ export class TankRenderer {
       if (e.type === 'eat') {
         const pos = this.project(e.x, e.z);
         this.bubbles.add(pos.x, pos.floorY - this.creatureSize * 0.05 * pos.scale, 4, 0.6 * pos.scale);
-      } else if (e.type === 'envShift') {
-        // 環境で変わる瞬間:体から光の粒が昇る(まだ描いていない生き物は、粒なし)
-        const center = e.creature.screen?.center;
-        if (center) {
-          const { scale } = this.project(e.creature.x, e.creature.z);
-          this.sparkles.add(center.x, center.y, ENV_CHANGE.SPARKS, e.creature.expressed.hue2 * 360, scale);
+      } else if (e.type === 'nestle') {
+        // 寄り添っている間:2匹の重なったあたりから、小さな泡がときどきのぼる
+        const ca = e.a.screen?.center;
+        const cb = e.b.screen?.center;
+        if (ca && cb) {
+          const { scale } = this.project((e.a.x + e.b.x) / 2, (e.a.z + e.b.z) / 2);
+          this.bubbles.add((ca.x + cb.x) / 2, Math.min(ca.y, cb.y), 2, 0.4 * scale);
         }
       } else if (e.type === 'sprout' || e.type === 'egg') {
         const pos = this.project(e.x, e.z);
@@ -396,7 +414,7 @@ export class TankRenderer {
     const middleZ = (c) => c.points.reduce((s, p) => s + p.z, 0) / c.points.length;
     const list = this.tank.creatures.map((c) => ({ c, z: middleZ(c) }));
     // 観察中は、見ている1匹にピントを合わせる(奥行きの差でぼかす)
-    const focusZ = list.find((e) => e.c === this.focus)?.z ?? null;
+    const focusZ = list.find((e) => e.c === this.focus)?.z ?? this.focusEgg?.z ?? null;
     for (const f of this.farewells.list) list.push({ c: f.c, z: middleZ(f.c), farewell: f });
     for (const p of this.tank.plants.list) list.push({ plant: p, z: p.z });
     for (const e of this.tank.eggs.list) list.push({ egg: e, z: e.z });

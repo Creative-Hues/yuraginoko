@@ -30,6 +30,9 @@ import { el } from './ui/dom.js';
 import { createObserveUi } from './ui/observeUi.js';
 import { createEditUi } from './ui/editUi.js';
 import { showError, watchErrors } from './ui/errorBox.js';
+import { eggMood } from './tank/eggs.js';
+import { nowInfluences } from './tank/influence.js';
+import { sensitivityLines } from './creature/sensitivity.js';
 
 watchErrors();
 
@@ -54,6 +57,8 @@ const renderer = new TankRenderer(canvas);
 renderer.onError = (err) => showError(err, '描画');
 // 卵がかえって5匹になったら、すみかを決める画面を出す(ほかの画面を開いているときは、左下のボタンだけ)
 renderer.onTankEvent = (e) => {
+  // 見ていた卵がかえったら、生まれた赤ちゃんをそのまま見る
+  if (e.type === 'hatch' && observingEgg && e.egg === observingEgg) enterObserve(e.creature);
   if (e.type !== 'crowded' || !current?.tank.crowded) return;
   syncUi();
   if (!overlay.hasChildNodes()) attempt('すみかを決める', () => showHome({ newborn: e.creature?.id }));
@@ -64,15 +69,21 @@ renderer.onTankEvent = (e) => {
 let current = null;
 let cleaning = false;
 let observing = null; // 観察中の生き物
+let observingEgg = null; // 観察中の卵
 let editing = false; // 環境編集モード
 let plantKind = null; // 編集モードで、植えるために選んでいる種類
 let selectedPlant = null; // 編集モードで、選んでいる植物
 
 const touch = createTouchController(canvas, renderer, {
   onLongPress: (creature) => enterObserve(creature),
+  onEggPress: (egg) => enterObserveEgg(egg),
+  // 生き物に直接触れていなければ卵を優先し、それもなければ近い生き物
   onPinchOpen: (x, y) => {
-    if (observing || editing) return;
-    const creature = renderer.creatureNear(x, y);
+    if (observing || observingEgg || editing) return;
+    const hit = renderer.hitTest(x, y)?.creature;
+    const egg = hit ? null : renderer.eggAt(x, y);
+    if (egg) return enterObserveEgg(egg);
+    const creature = hit ?? renderer.creatureNear(x, y);
     if (creature) enterObserve(creature);
   },
   onPinchClose: () => exitObserve(),
@@ -278,6 +289,7 @@ function enterObserve(creature) {
   if (!current) return;
   if (cleaning) setCleaning(false);
   if (editing) setEditing(false);
+  observingEgg = null;
   observing = creature;
   current.tank.focus = creature;
   renderer.setFocus(creature);
@@ -285,8 +297,28 @@ function enterObserve(creature) {
   syncUi();
 }
 
+// 卵を見る:少し寄って「たまご」と、ようすの一言
+function enterObserveEgg(egg) {
+  if (!current) return;
+  if (cleaning) setCleaning(false);
+  if (editing) setEditing(false);
+  observing = null;
+  observingEgg = egg;
+  current.tank.focus = null;
+  renderer.setFocusEgg(egg);
+  observeUi.show();
+  syncUi();
+}
+
 function exitObserve() {
-  if (!observing) return;
+  if (!observing && !observingEgg) return;
+  if (observingEgg) {
+    observingEgg = null;
+    renderer.setFocusEgg(null);
+    observeUi.hide();
+    syncUi();
+    return;
+  }
   observing = null;
   if (current) current.tank.focus = null;
   renderer.setFocus(null);
@@ -297,18 +329,28 @@ function exitObserve() {
 // ボタンの出し分け
 function syncUi() {
   const tank = current?.tank;
-  tankButton.hidden = !tank || !!observing || editing;
-  homeButton.hidden = !tank?.crowded || !!observing || editing || cleaning;
-  cleanButton.hidden = !tank || !!observing || editing; // 藻の量に関係なく、いつでも掃除できる
-  editButton.hidden = !tank || !!observing;
+  const watching = !!observing || !!observingEgg;
+  tankButton.hidden = !tank || watching || editing;
+  homeButton.hidden = !tank?.crowded || watching || editing || cleaning;
+  cleanButton.hidden = !tank || watching || editing; // 藻の量に関係なく、いつでも掃除できる
+  editButton.hidden = !tank || watching;
   if (editing && tank) {
     // 抜かれた植物は選ばない
     if (selectedPlant && !tank.plants.list.includes(selectedPlant)) selectPlant(null);
     editUi.update({ env: tank.env, plantCount: tank.plants.count, kind: plantKind, selected: selectedPlant });
   }
-  if (observing) {
+  if (observing && tank) {
     observing.refreshMeal();
-    observeUi.update(observing);
+    observeUi.update(observing, {
+      now: nowInfluences(observing, tank.env, tank.plants.list),
+      ready: tank.readyToBreed(observing),
+      sensitivity: sensitivityLines(observing.sensitivity),
+    });
+  }
+  if (observingEgg) {
+    // かえった卵は、赤ちゃんの観察に切り替わっている(念のため、見つからなければ戻る)
+    if (!tank?.eggs.list.includes(observingEgg)) exitObserve();
+    else observeUi.updateEgg(eggMood(observingEgg));
   }
 }
 

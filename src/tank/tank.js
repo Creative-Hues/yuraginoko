@@ -4,7 +4,6 @@ import { seekDistance } from '../creature/behavior.js';
 import { DEPTH_SPAN } from '../creature/body.js';
 import { makeId, makeRng, randomSeed } from '../util/random.js';
 import { clamp, lerp, smoothstep } from '../util/math.js';
-import { nudgeGenes } from '../creature/genes.js';
 import { Algae, DAY_MS, calmFor } from './algae.js';
 import { FoodBits } from './food.js';
 import { Nutrients, accumulateExposure, copyEnv, exposureDrift, normalizeEnv } from './environment.js';
@@ -13,7 +12,7 @@ import { ENV_CHANGE, ENV_TICK, NUTRIENT, SPROUT, SPROUT_BY_FOOD } from './envCon
 import { Social } from './social.js';
 import { Eggs } from './eggs.js';
 import { makeChild, parentSnapshot } from '../creature/breeding.js';
-import { EGG, GROW, MATE, TANK_CAPACITY } from '../creature/lifeConfig.js';
+import { BREED, EGG, GROW, TANK_CAPACITY } from '../creature/lifeConfig.js';
 
 // 保存データの形が変わったら上げる(読み込み時に古い形を変換できるように)
 // - 1: フェーズ1
@@ -21,6 +20,7 @@ import { EGG, GROW, MATE, TANK_CAPACITY } from '../creature/lifeConfig.js';
 // - 3: env(土・光・水流)と things.plants(植物)、things.soil(底の栄養)を追加
 // - 4: id・name・createdAt(1人が複数の水槽を持てるように)、social(交流の回数)、eggs(卵)、
 //      生き物ごとの growth・quirks・mutations・parents・bornAt を追加
+//   (版はそのままで、生き物ごとの sensitivity(環境の受けやすさ)を追加。無いデータは seed から決める)
 export const TANK_DATA_VERSION = 4;
 
 const OBSERVED_PACE = 0.6; // 観察中の1匹は、画面から逃げにくいよう少しゆっくり
@@ -136,16 +136,29 @@ export class Tank {
 
   // ---- 交流・交配・卵 ----
 
-  // 触れ合った2匹。同じ組の交流がたまっていて、空きがあれば交配する
+  // 5匹の間(卵がかえって5匹になるぶんも数える)は、繁殖しない
+  get canBreed() {
+    return !this.crowded && this.creatures.length + this.eggs.count <= TANK_CAPACITY;
+  }
+
+  // 触れ合った2匹(回数は social.js で数えた。MATE.MEETS 回たまると、繁殖の準備ができる)
   met(a, b) {
     this.dirty = true;
-    const hx = (a.x + b.x) / 2;
-    const hz = (a.z + b.z) / 2;
-    this.events.push({ type: 'meet', x: hx, z: hz, a, b });
-    if (this.social.count(a, b) < MATE.MEETS) return;
-    if (this.crowded || this.creatures.length + this.eggs.count > TANK_CAPACITY) return; // 5匹になる前まで。回数はそのまま
+    this.events.push({ type: 'meet', x: (a.x + b.x) / 2, z: (a.z + b.z) / 2, a, b });
+  }
+
+  // 寄り添いが最後まで終わった:BREED.CHANCE の確率で卵を産む。産んだらその組の回数を 0 に戻す。
+  // 産まなかったときは、準備ができたまま次を待つ
+  bred(a, b) {
+    if (!this.canBreed || !this.social.ready(a, b)) return null;
+    if (this.random() >= BREED.CHANCE) return null;
     this.social.reset(a, b);
-    this.mate(a, b);
+    return this.mate(a, b);
+  }
+
+  // 観察中に出す一言:繁殖の準備ができている相手がいるか
+  readyToBreed(c) {
+    return this.social.hasReadyPartner(c, this.creatures);
   }
 
   // 交配:どちらかが、しっぽの後ろの砂に卵を産む
@@ -168,7 +181,7 @@ export class Tank {
   hatch(egg) {
     const baby = this.adopt(Creature.born({ ...egg.child, x: clamp(egg.x, 0.3, 0.7), z: egg.z }));
     this.creatures.push(baby);
-    this.events.push({ type: 'hatch', x: egg.x, z: egg.z, creature: baby });
+    this.events.push({ type: 'hatch', x: egg.x, z: egg.z, creature: baby, egg });
     if (this.crowded) this.events.push({ type: 'crowded', creature: baby });
     this.dirty = true;
     return baby;
@@ -257,20 +270,14 @@ export class Tank {
     }
   }
 
-  // 環境でまとめて変わる。見えるくらいの変化なら、少しかけて変わりながら体がふわっと光る
+  // 環境でまとめて変わる。光ったりはせず、少しかけて静かに変わる
   envShift(c) {
     c.finishShift(); // 前の変化が残っていれば、先に変えきる
     const drift = exposureDrift(c, c.envExposure);
     c.envExposure.clear();
-    const size = Object.values(drift).reduce((sum, v) => sum + Math.abs(v), 0);
-    if (!(size > 0)) return;
+    if (!Object.values(drift).some((v) => v !== 0)) return;
     this.dirty = true;
-    if (size < ENV_CHANGE.MIN_VISIBLE) {
-      nudgeGenes(c.genes, drift);
-      return;
-    }
-    c.shiftGenes(drift, ENV_CHANGE.SHIFT_SECONDS, ENV_CHANGE.GLOW_SECONDS);
-    this.events.push({ type: 'envShift', creature: c });
+    c.shiftGenes(drift, ENV_CHANGE.SHIFT_SECONDS);
   }
 
   // 排泄の粒が溶けきった:その場所の土に栄養をためる。1回の排泄の粒がすべて溶けたら、ときどき芽が出る
@@ -297,8 +304,14 @@ export class Tank {
       c.update(dt, t);
     }
     this.updateFood(dt);
-    const met = this.social.update(dt, this.creatures);
-    if (met) this.met(...met);
+    const social = this.social.update(dt, this.creatures, this.canBreed);
+    if (social?.type === 'met') this.met(social.a, social.b);
+    else if (social?.type === 'bred') this.bred(social.a, social.b);
+    const br = this.social.breeding;
+    if (br?.bubbled) {
+      br.bubbled = false;
+      this.events.push({ type: 'nestle', a: br.a, b: br.b });
+    }
     for (const egg of this.eggs.update(dt)) this.hatch(egg);
     if (this.eggs.count) this.dirty = true;
     this.envClock += dt;

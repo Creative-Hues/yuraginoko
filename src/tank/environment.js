@@ -3,8 +3,10 @@
 import { GENE_DEFS } from '../creature/genes.js';
 import { DEPTH_SPAN } from '../creature/body.js';
 import { clamp, wrap01 } from '../util/math.js';
+import { sensitivityScale } from '../creature/sensitivity.js';
 import {
   CURRENT_EFFECT,
+  CURRENT_NAMES,
   DEFAULT_ENV,
   ENV_CHANGE,
   LIGHT_BRIGHTNESS,
@@ -114,29 +116,53 @@ export function nearbyPlants(creature, plants) {
   return near;
 }
 
-const MODES = ['up', 'down', 'toward'];
+export const EFFECT_MODES = ['up', 'down', 'toward'];
 
-// 今この瞬間に当てはまっている効果を、exposure(Map)に「強さ × 秒数」で足す
+// 効果に中身があるか
+export function hasEffect(effect) {
+  return EFFECT_MODES.some((mode) => Object.keys(effect?.[mode] ?? {}).length > 0);
+}
+
+// 光の色の効果(いつもの光は null)
+export function lightEffect(light) {
+  return light && light.hue != null ? { toward: { hue: light.hue } } : null;
+}
+
+/**
+ * 今この瞬間に、この生き物に当てはまっている環境。
+ * [{ kind: 受けやすさの項目, name: 観察中に出す名前, effect, strength: 強さ(受けやすさをかける前) }]
+ */
+export function activeSources(creature, env, plants) {
+  const out = [];
+  const push = (kind, name, effect, strength) => {
+    if (hasEffect(effect) && strength > 0) out.push({ kind, name, effect, strength });
+  };
+  const light = LIGHT_COLORS[env.light.color];
+  push('light', light?.name, lightEffect(light), 1);
+  const b = env.light.brightness;
+  push('brightness', LIGHT_BRIGHTNESS.dark.name, LIGHT_BRIGHTNESS.dark.effect, clamp((0.5 - b) * 2));
+  push('brightness', LIGHT_BRIGHTNESS.bright.name, LIGHT_BRIGHTNESS.bright.effect, clamp((b - 0.5) * 2));
+  const soil = SOILS[env.soil];
+  push('soil', soil?.label, soil?.effect, 1);
+  for (const [kind, strength] of Object.entries(nearbyPlants(creature, plants))) push('plants', PLANTS[kind]?.label, PLANTS[kind]?.effect, strength);
+  push('current', CURRENT_NAMES.name, CURRENT_EFFECT, env.current.strength);
+  return out;
+}
+
+// 今この瞬間に当てはまっている効果を、exposure(Map)に「強さ × 受けやすさ × 秒数」で足す
 export function accumulateExposure(exposure, creature, env, plants, seconds) {
-  const add = (effect, strength) => {
-    if (!effect || !(strength > 0)) return;
-    for (const mode of MODES) {
+  for (const { kind, effect, strength } of activeSources(creature, env, plants)) {
+    const k = strength * sensitivityScale(creature.sensitivity, kind) * seconds;
+    if (!(k > 0)) continue;
+    for (const mode of EFFECT_MODES) {
       for (const [key, target] of Object.entries(effect[mode] ?? {})) {
         const id = `${mode}:${key}:${target}`;
         const e = exposure.get(id) ?? { mode, key, target, amount: 0 };
-        e.amount += strength * seconds;
+        e.amount += k;
         exposure.set(id, e);
       }
     }
-  };
-  add(SOILS[env.soil]?.effect, 1);
-  const light = LIGHT_COLORS[env.light.color];
-  if (light && light.hue != null) add({ toward: { hue: light.hue } }, 1);
-  const b = env.light.brightness;
-  add(LIGHT_BRIGHTNESS.dark, clamp((0.5 - b) * 2));
-  add(LIGHT_BRIGHTNESS.bright, clamp((b - 0.5) * 2));
-  add(CURRENT_EFFECT, env.current.strength);
-  for (const [kind, strength] of Object.entries(nearbyPlants(creature, plants))) add(PLANTS[kind]?.effect, strength);
+  }
 }
 
 // 生き物ごとに決まった、目標の値のずれ(-1〜1)

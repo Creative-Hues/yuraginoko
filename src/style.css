@@ -820,3 +820,108 @@ body {
 .specimen-info .btn {
   white-space: nowrap;
 }
+
+/* 環境編集:選んでいるものの効き方の一言 */
+.edit-hint {
+  flex-basis: 100%;
+  padding: 0 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #e8dcff;
+}
+.edit-tab.list {
+  margin-left: 6px;
+  background: rgba(244, 236, 255, 0.85);
+  color: var(--ink);
+}
+.edit-tab.list[aria-pressed='true'] {
+  background: var(--lime);
+}
+
+/* 環境編集:影響の一覧(横画面でも読めるように、高さを抑えてスクロール) */
+.influence-list {
+  flex-direction: column;
+  align-items: stretch;
+  flex-wrap: nowrap;
+  width: min(560px, 100%);
+  max-height: calc(100vh - var(--safe-top) - var(--safe-bottom) - 70px);
+}
+.influence-body {
+  overflow-y: auto;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+  padding: 2px 4px;
+}
+.influence-section h2 {
+  margin: 6px 0 2px;
+  font-size: 13px;
+  color: var(--lime);
+}
+.influence-section ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.influence-section li {
+  padding: 2px 0;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+.influence-label {
+  color: var(--paper);
+  font-weight: 800;
+}
+.influence-arrow {
+  margin: 0 6px;
+  color: #b9a8d8;
+}
+.influence-note {
+  margin-left: 4px;
+  font-size: 11px;
+  color: #b9a8d8;
+}
+.influence-list > .chip {
+  align-self: flex-end;
+  margin-top: 4px;
+}
+
+/* 観察モード:上の真ん中の、控えめな一言 */
+.observe-info {
+  position: fixed;
+  top: calc(var(--safe-top) + 12px);
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100vw - var(--safe-left) - var(--safe-right) - 300px);
+  padding: 4px 12px;
+  border-radius: 12px;
+  background: rgba(18, 10, 28, 0.35);
+  text-align: center;
+  pointer-events: none;
+}
+.observe-info p {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.5;
+  color: rgba(244, 236, 255, 0.85);
+}
+.observe-info p.title {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--paper);
+}
+.observe-info p.ready {
+  color: rgba(214, 255, 150, 0.9);
+}
+.observe-info p.sub {
+  font-size: 11px;
+  color: rgba(217, 204, 239, 0.75);
+}
+
+/* 標本の詳しい画面:環境の受けやすさ */
+.panel p.specimen-sensitivity {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: #d9ccef;
+}

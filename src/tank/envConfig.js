@@ -13,14 +13,32 @@ export const ENV_TICK = 1; // 植物が育つのと、環境に当てはまっ�
 // 環境による遺伝子の変化。水槽を開いている間だけ進む
 // 1秒ごとに当てはまっている環境を記録して、INTERVAL 秒ごとに、その間に当てはまっていたぶんをまとめて変える
 export const ENV_CHANGE = {
-  INTERVAL: 20, // まとめて変わる間隔(秒)。生き物ごとにタイミングをずらす
+  INTERVAL: 60, // まとめて変わる間隔(秒)。生き物ごとにタイミングをずらす
   STEP: 0.015, // INTERVAL の間ずっと当てはまっていたときの、1回の変化量
   TARGET_JITTER: 0.08, // 目標の値の、生き物ごとのずれ(±)
-  SHIFT_SECONDS: 1.5, // 変わるときに、見た目がこれだけかけて変わる(秒)
-  GLOW_SECONDS: 1.8, // 変わる瞬間に、体がふわっと光る時間(秒)
-  SPARKS: 6, // 変わる瞬間に、体から昇る光の粒の数
-  MIN_VISIBLE: 0.003, // 変化がこれより小さいときは、光らせない
+  SHIFT_SECONDS: 1.5, // 変わるときに、見た目がこれだけかけて(静かに)変わる(秒)
 };
+
+// 生き物ごとの「環境の受けやすさ」。項目ごとに3段階で、当てはまっている強さに倍率をかける。
+// エサの効き方には関係しない(全員同じ)
+export const SENSITIVITY = {
+  KINDS: {
+    light: '光の色',
+    brightness: '明るさ',
+    soil: '土',
+    plants: '植物',
+    current: '水流',
+  },
+  LEVELS: {
+    high: { label: '受けやすい', scale: 1.5 },
+    normal: { label: 'ふつう', scale: 1 },
+    low: { label: '受けにくい', scale: 0.2 },
+  },
+  HIGH_COUNT: [1, 2], // 1匹あたりの「受けやすい」の数
+  LOW_COUNT: [1, 2], // 1匹あたりの「受けにくい」の数
+  INHERIT_CHANGE: 0.2, // 赤ちゃんが親から受け継ぐとき、項目ごとに段階が変わる確率
+};
+export const SENSITIVITY_KEYS = Object.keys(SENSITIVITY.KINDS);
 
 // ---- 植物 ----
 export const PLANT_LIMIT = 8; // 植物は合計でこれだけまで(上限のときは勝手に生えない)
@@ -116,31 +134,56 @@ export const SPROUT = {
 };
 
 // ---- 光 ----
+// name: 観察中の「いま受けている影響」での名前、
 // hue: 生き物の色を寄せる色相(null なら寄せない。目標は生き物ごとに少しずれる)、ray: 光の筋の色相、water: 水の色(上 → 下)
 export const LIGHT_COLORS = {
-  usual: { label: 'いつもの', swatch: '#7dffe0', hue: null, ray: 165, water: ['#1a0848', '#123a86', '#0a6b73'] },
-  blue: { label: '青', swatch: '#5b8bff', hue: 0.62, ray: 215, water: ['#0a0c48', '#10307e', '#0a4a8a'] },
-  purple: { label: '紫', swatch: '#b06bff', hue: 0.76, ray: 275, water: ['#1c063f', '#3a1680', '#40207a'] },
-  pink: { label: '桃', swatch: '#ff6fcf', hue: 0.9, ray: 320, water: ['#2a0640', '#5a1470', '#6a2070'] },
-  orange: { label: '橙', swatch: '#ffa53b', hue: 0.08, ray: 35, water: ['#2a0a30', '#5a2a4a', '#7a4a3a'] },
-  green: { label: '緑', swatch: '#8aff5b', hue: 0.3, ray: 110, water: ['#0a1c38', '#10484a', '#2a6a30'] },
+  usual: { label: 'いつもの', name: 'いつもの光', swatch: '#7dffe0', hue: null, ray: 165, water: ['#1a0848', '#123a86', '#0a6b73'] },
+  blue: { label: '青', name: '青い光', swatch: '#5b8bff', hue: 0.62, ray: 215, water: ['#0a0c48', '#10307e', '#0a4a8a'] },
+  purple: { label: '紫', name: '紫の光', swatch: '#b06bff', hue: 0.76, ray: 275, water: ['#1c063f', '#3a1680', '#40207a'] },
+  pink: { label: '桃', name: '桃色の光', swatch: '#ff6fcf', hue: 0.9, ray: 320, water: ['#2a0640', '#5a1470', '#6a2070'] },
+  orange: { label: '橙', name: '橙色の光', swatch: '#ffa53b', hue: 0.08, ray: 35, water: ['#2a0a30', '#5a2a4a', '#7a4a3a'] },
+  green: { label: '緑', name: '緑の光', swatch: '#8aff5b', hue: 0.3, ray: 110, water: ['#0a1c38', '#10484a', '#2a6a30'] },
 };
 export const LIGHT_COLOR_KEYS = Object.keys(LIGHT_COLORS);
 
 // 明るさ(0〜1、真ん中の 0.5 は変化なし)。真ん中から離れるほど強く効く
+// label: 一覧での名前、name: 観察中の「いま受けている影響」での名前
 export const LIGHT_BRIGHTNESS = {
-  dark: { up: { translucency: 0.8, glow: 0.75 } }, // 暗い:透けやすく、光りやすく
-  bright: { down: { translucency: 0.2, glow: 0.2 } }, // 明るい:その逆
+  dark: { label: '暗い', name: '暗い光', effect: { up: { translucency: 0.8, glow: 0.75 } } }, // 透けやすく、光りやすく
+  bright: { label: '明るい', name: '明るい光', effect: { down: { translucency: 0.2, glow: 0.2 } } }, // その逆
 };
 
 // ---- 水流 ----
-// 強さ 0〜1。強いほど効く
+// 強さ 0〜1。強いほど効く。label: 一覧での名前、name: 観察中の名前
 export const CURRENT_EFFECT = { up: { wriggliness: 0.85, floatiness: 0.8 } };
+export const CURRENT_NAMES = { label: '強い', name: '水の流れ' };
 export const CURRENT_LOOK = {
   PARTICLE_SPEED: 0.06, // 強さ 1 のとき、ただよう粒が流れる速さ(画面の幅/秒)
   BUBBLE_SPEED: 45, // 泡が流れる速さ(px/秒)
   LEAF_LEAN: 0.45, // 植物の葉がなびく角度(ラジアン)
 };
+
+// ---- 影響の言葉 ----
+// 「影響の一覧」と、編集・観察中の一言は、ここと上の effect の定義から作る(src/tank/influence.js)。
+// 植物や土を増やしても、effect に使った「遺伝子と向き」の言葉がここにあれば、一覧に自動で並ぶ
+export const EFFECT_WORDS = {
+  bodyLength: { up: '体がずんぐりする', down: '体が細長くなる' },
+  spikeCount: { up: '突起が増える', down: '突起が減る' },
+  spikeLength: { up: '突起が長くなる', down: '突起が短くなる' },
+  edgeRuffle: { up: '縁が波打つ', down: '縁がまっすぐになる' },
+  hue: { toward: '体の色がその色に寄る' },
+  hue2: { toward: '2つ目の色がその色に寄る' },
+  pattern: { toward: '{pattern}の模様に寄る' }, // {pattern} は目標の値の模様の名前
+  translucency: { up: '透けやすくなる', down: '透けにくくなる' },
+  glow: { up: '光り方が強くなる', down: '光り方が弱くなる' },
+  crawlSpeed: { up: '這うのが速くなる', down: '這うのがゆっくりになる' },
+  floatiness: { up: '浮きやすくなる', down: '浮きにくくなる' },
+  wriggliness: { up: 'うねりやすくなる', down: 'うねりにくくなる' },
+};
+export const PATTERN_NAMES = { spots: '斑点', stripes: 'しま', net: '網目', gradient: 'グラデーション' };
+export const NO_EFFECT_TEXT = '変化なし';
+// 観察中の「いま受けている影響」に明るさ・水流を出すのは、効き方がこれより大きいとき
+export const INFLUENCE_MIN = 0.1;
 
 // 初期の環境(どれも「変化なし」)。環境のない古いデータは、これで開く
 export const DEFAULT_ENV = {

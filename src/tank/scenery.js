@@ -138,8 +138,8 @@ export function renderScenery(ctx, geo, seed, env) {
     ctx.fill();
   }
 
-  // 小石(影は1色だけ)
-  const colors = ['#7a3fc0', '#2f8a9a', '#c0407e', '#86a832', '#3f4fc0', '#e0a33a'];
+  // 小石(影は1色だけ)。まるい苔や排泄の粒と見分けやすいように、灰色・茶色の地味な色で、控えめに描く
+  const colors = ['#5b5560', '#6a5d52', '#4f4a55', '#71685c', '#5a5048', '#646068'];
   const pebbles = Array.from({ length: 16 }, () => ({
     x: rng(),
     z: rng(),
@@ -158,7 +158,7 @@ export function renderScenery(ctx, geo, seed, env) {
   for (const p of pebbles) {
     const pos = geo.project(p.x * 1.1 - 0.05, p.z);
     const r = geo.creatureSize * 0.06 * p.r * pos.scale;
-    ctx.fillStyle = 'rgba(11,5,20,0.55)';
+    ctx.fillStyle = 'rgba(11,5,20,0.3)';
     ctx.beginPath();
     ctx.ellipse(pos.x + r * 0.35, pos.floorY + r * 0.4, r * 1.25, r * 0.4, 0, 0, TAU);
     ctx.fill();
@@ -166,10 +166,10 @@ export function renderScenery(ctx, geo, seed, env) {
     ctx.beginPath();
     ctx.ellipse(pos.x, pos.floorY, r * 1.2, r * 0.75, 0, 0, TAU);
     ctx.fill();
-    ctx.strokeStyle = INK;
-    ctx.lineWidth = Math.max(1.2, 2.5 * pos.scale);
+    ctx.strokeStyle = 'rgba(11,5,20,0.45)';
+    ctx.lineWidth = Math.max(0.8, 1.4 * pos.scale);
     ctx.stroke();
-    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.fillStyle = 'rgba(255,255,255,0.12)';
     ctx.beginPath();
     ctx.arc(pos.x - r * 0.4, pos.floorY - r * 0.3, r * 0.2, 0, TAU);
     ctx.fill();

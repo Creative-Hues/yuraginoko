@@ -15,6 +15,7 @@ import { bodyPoints, createBody, updateBody } from './body.js';
 import { makeId, makeRng, randomSeed } from '../util/random.js';
 import { clamp, lerp, smoothstep } from '../util/math.js';
 import { normalizeQuirks } from './breeding.js';
+import { normalizeSensitivity, randomSensitivity } from './sensitivity.js';
 import { GROW } from './lifeConfig.js';
 
 // 撫でたと数えるのに必要な、生き物の上をなぞった距離(px)
@@ -68,6 +69,8 @@ export class Creature {
     // 両親の写し(わかる場合)。標本画面で親の姿を出す
     this.parents = Array.isArray(data.parents) ? data.parents.filter((p) => p && typeof p === 'object' && p.genes).slice(0, 2) : [];
     this.bornAt = Number(data.bornAt) || null;
+    // 環境の受けやすさ。持っていない古いデータは seed から決める
+    this.sensitivity = normalizeSensitivity(data.sensitivity, this.seed);
 
     // ここから下は保存しない(開き直すと、底を這うところから始まる)
     this.lift = 0;
@@ -90,9 +93,9 @@ export class Creature {
       cringe: 0, // 体のすくみ
     };
     this.meet = null; // 触れ合っている最中 { partner, t, seconds }
+    this.breed = null; // 繁殖で寄り添っている最中 { partner, t, seconds }(social.js が管理)
+    this.disturbed = false; // 弾かれた・エサに向かった・排泄した(繁殖を途中でやめる印。social.js が見て消す)
     this.shift = null; // 環境で変わっている途中 { drift, progress, seconds }
-    this.shiftGlow = 0; // 変わる瞬間の、体の光(1 → 0)
-    this.shiftGlowSeconds = 1;
     this.screen = null; // 描画時に画面上の体の形が入る(当たり判定用)
     this.canvas = null; // 描画用の下書きキャンバス
     this.scratch = null;
@@ -105,6 +108,7 @@ export class Creature {
       id: makeId(),
       seed,
       genes: randomGenes(makeRng(seed)),
+      sensitivity: randomSensitivity(Math.random),
       x: opts.x ?? 0.3 + Math.random() * 0.4,
       z: opts.z ?? Math.random(),
       heading: Math.random() < 0.5 ? Math.PI : 0,
@@ -112,11 +116,12 @@ export class Creature {
   }
 
   // 交配で生まれた赤ちゃん
-  static born({ genes, quirks, mutations, parents, x, z, heading }) {
+  static born({ genes, quirks, mutations, parents, sensitivity, x, z, heading }) {
     return new Creature({
       id: makeId(),
       seed: randomSeed(),
       genes,
+      sensitivity,
       quirks,
       mutations,
       parents,
@@ -191,17 +196,16 @@ export class Creature {
     tc.shrink = 1;
     tc.shrinkVel = 0;
     tc.cringe = 1;
+    this.disturbed = true;
     if (applyTouchDrift(this.genes, 'flick')) this.onChange?.();
   }
 
   // ---- 環境による変化 ----
 
-  // 遺伝子を drift だけ、seconds 秒かけて変える。体は glowSeconds 秒ふわっと光る
-  shiftGenes(drift, seconds, glowSeconds) {
+  // 遺伝子を drift だけ、seconds 秒かけて静かに変える
+  shiftGenes(drift, seconds) {
     this.finishShift();
     this.shift = { drift, progress: 0, seconds };
-    this.shiftGlow = 1;
-    this.shiftGlowSeconds = glowSeconds;
     this.onChange?.();
   }
 
@@ -214,7 +218,6 @@ export class Creature {
   }
 
   updateShift(dt) {
-    this.shiftGlow = Math.max(0, this.shiftGlow - dt / this.shiftGlowSeconds);
     const s = this.shift;
     if (!s) return;
     const next = Math.min(1, s.progress + dt / s.seconds);
@@ -244,6 +247,7 @@ export class Creature {
   seekFood(food, x, z) {
     if (this.meal.stage !== MEAL.ready || !FOODS[food]) return false;
     this.meal = { stage: MEAL.seeking, food };
+    this.disturbed = true;
     startSeek(this, x, z);
     this.onChange?.();
     return true;
@@ -283,6 +287,7 @@ export class Creature {
     const food = this.meal.food;
     this.meal = { stage: MEAL.resting, restUntil: now + MEAL_REST_SECONDS * 1000 };
     this.touch.cringe = 1;
+    this.disturbed = true;
     pauseBehavior(this, EXCRETE_PAUSE);
     this.onChange?.();
     const tail = this.points[this.points.length - 1];
@@ -312,6 +317,7 @@ export class Creature {
       mutations: this.mutations.map((m) => ({ ...m })),
       parents: this.parents.map((p) => ({ ...p, genes: { ...p.genes }, quirks: (p.quirks ?? []).map((q) => ({ ...q })) })),
       bornAt: this.bornAt,
+      sensitivity: { ...this.sensitivity },
     };
   }
 }

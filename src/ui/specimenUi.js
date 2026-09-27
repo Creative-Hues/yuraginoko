@@ -2,6 +2,7 @@
 // 姿は標本にした瞬間のまま(静止画)。結晶の光だけが、CSS でごくゆっくりゆらぐ。
 import { el } from './dom.js';
 import { portrait, portraitColor } from '../creature/portrait.js';
+import { normalizeSensitivity, sensitivityLines } from '../creature/sensitivity.js';
 
 function crystal(data, w, h, extraClass = '') {
   const url = portrait(data, w, h);
@@ -46,6 +47,10 @@ export function renderSpecimenDetail(root, { specimen: s, onEdit, onBack }) {
   const info = el('div', { class: 'specimen-info' }, [
     el('h1', { class: 'specimen-title', text: displayName(s) }),
     s.note ? el('p', { class: 'specimen-note', text: s.note }) : null,
+    // 環境の受けやすさ(古い標本は、その子の seed から出す。水槽にいたときと同じになる)
+    ...sensitivityLines(normalizeSensitivity(s.creature?.sensitivity, s.creature?.seed)).map((text) =>
+      el('p', { class: 'specimen-sensitivity', text }),
+    ),
     parents.length
       ? el('div', { class: 'parents' }, [
           el('span', { class: 'field-label', text: '親' }),

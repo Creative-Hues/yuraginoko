@@ -18,6 +18,7 @@ export class Farewells {
   add(creature, kind) {
     creature.leaving = true;
     creature.meet = null;
+    creature.breed = null;
     this.list.push({ c: creature, kind, t: 0, lift0: creature.lift, seconds: kind === 'crystal' ? FAREWELL.CRYSTAL_SECONDS : FAREWELL.MOVE_SECONDS, fx: 0, flashed: false });
   }
 

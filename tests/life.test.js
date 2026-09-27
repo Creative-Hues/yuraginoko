@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto';
 import { afterEach, describe, expect, it } from 'vitest';
 import { makeChild, normalizeQuirks } from '../src/creature/breeding.js';
 import { randomGenes } from '../src/creature/genes.js';
-import { EGG, GROW, MATE, MUTATION, TANK_CAPACITY } from '../src/creature/lifeConfig.js';
+import { BREED, EGG, GROW, MATE, MUTATION, TANK_CAPACITY } from '../src/creature/lifeConfig.js';
 import { Creature } from '../src/creature/creature.js';
 import { makeRng } from '../src/util/random.js';
 import { Tank } from '../src/tank/tank.js';
@@ -78,7 +78,7 @@ describe('赤ちゃんの遺伝子', () => {
   });
 });
 
-describe('交流と交配', () => {
+describe('交流と繁殖', () => {
   // 2匹を近くに置いた水槽
   function pairTank() {
     const tank = Tank.createNew('p');
@@ -100,11 +100,45 @@ describe('交流と交配', () => {
     expect(Tank.fromData(data).social.count(a, b)).toBe(1);
   });
 
-  it(`${MATE.MEETS}回目の交流で卵を産み、数分でかえって小さな赤ちゃんになる`, () => {
+  // 準備ができた2匹が、すぐ繁殖を探し始めるようにする(交流は起きないように)
+  function readyTank() {
+    const t = pairTank();
+    t.tank.social.pairs[pairKey(t.a, t.b)] = MATE.MEETS;
+    t.tank.social.timer = Infinity;
+    t.tank.social.breedTimer = 0;
+    let bred = 0;
+    const orig = t.tank.bred.bind(t.tank);
+    t.tank.bred = (a, b) => {
+      bred++;
+      return orig(a, b);
+    };
+    return { ...t, bred: () => bred };
+  }
+
+  it(`${MATE.MEETS}回目の交流で繁殖の準備ができる(卵はまだ産まない)。準備は保存される`, () => {
     const { tank, a, b } = pairTank();
     tank.social.pairs[pairKey(a, b)] = MATE.MEETS - 1;
-    expect(run(tank, 30, () => tank.eggs.count === 1)).toBe(true);
+    expect(tank.readyToBreed(a)).toBe(false);
+    expect(run(tank, 30, () => tank.social.count(a, b) === MATE.MEETS)).toBe(true);
+    expect(tank.eggs.count).toBe(0);
+    expect(tank.readyToBreed(a)).toBe(true);
+    expect(tank.readyToBreed(b)).toBe(true);
+    const loaded = Tank.fromData(JSON.parse(JSON.stringify(tank.toData())));
+    expect(loaded.readyToBreed(loaded.creatures[0])).toBe(true);
+  });
+
+  it('準備ができた2匹は寄り添って体を重ね、最後まで終わると確率で卵を産む。産んだら回数は 0', () => {
+    const { tank, a, b, bred } = readyTank();
+    tank.random = () => BREED.CHANCE - 0.01; // 当たり
+    expect(run(tank, BREED.GIVE_UP, () => !!tank.social.breeding)).toBe(true);
+    expect(a.breed?.partner).toBe(b);
+    expect(b.breed?.partner).toBe(a);
+    expect(a.meet).toBeNull(); // 交流(触角)とは別の動き
+    expect(run(tank, BREED.SECONDS + 1, () => tank.eggs.count === 1)).toBe(true);
+    expect(bred()).toBe(1);
+    expect(a.breed).toBeNull();
     expect(tank.social.count(a, b)).toBe(0);
+    expect(tank.readyToBreed(a)).toBe(false);
     const egg = tank.eggs.list[0];
     expect(egg.child.parents.map((p) => p.id).sort()).toEqual([a.id, b.id].sort());
 
@@ -122,6 +156,7 @@ describe('交流と交配', () => {
     expect(baby.parents).toHaveLength(2);
     expect(baby.parents[0].genes).toBeTruthy();
     expect(baby.mutations.length).toBeGreaterThanOrEqual(1);
+    expect(tank.events.some((e) => e.type === 'hatch' && e.egg === egg)).toBe(true);
     expect(tank.events.some((e) => e.type === 'crowded')).toBe(false);
 
     // 赤ちゃんは交流しない。開いている間に育つ
@@ -130,13 +165,39 @@ describe('交流と交配', () => {
     expect(baby.adult).toBe(false);
   });
 
-  it('4匹のときに生まれると5匹になり、5匹の間は交配しない', () => {
-    const { tank, a, b } = pairTank();
+  it('最後まで終わっても産まなかったときは、準備ができたまま次を待つ', () => {
+    const { tank, a, b, bred } = readyTank();
+    tank.random = () => BREED.CHANCE + 0.01; // 外れ
+    expect(run(tank, BREED.GIVE_UP + BREED.SECONDS + 1, () => bred() === 1)).toBe(true);
+    expect(tank.eggs.count).toBe(0);
+    expect(tank.social.count(a, b)).toBe(MATE.MEETS);
+    expect(tank.readyToBreed(a)).toBe(true);
+    expect(tank.social.breedTimer).toBeGreaterThan(0); // 次は少しあとで
+  });
+
+  it('途中で弾かれたら繁殖はやめて、準備ができたまま', () => {
+    const { tank, a, b, bred } = readyTank();
+    tank.random = () => 0;
+    expect(run(tank, BREED.GIVE_UP, () => !!tank.social.breeding)).toBe(true);
+    run(tank, 1);
+    a.flick();
+    tank.update(1 / 30, 0);
+    expect(tank.social.breeding).toBeNull();
+    expect(a.breed).toBeNull();
+    expect(b.breed).toBeNull();
+    run(tank, BREED.SECONDS + 1);
+    expect(bred()).toBe(0);
+    expect(tank.eggs.count).toBe(0);
+    expect(tank.readyToBreed(a)).toBe(true);
+  });
+
+  it('4匹のときに生まれると5匹になり、5匹の間は繁殖しない', () => {
+    const { tank, a, b } = readyTank();
     for (let i = 0; i < TANK_CAPACITY - 2; i++) tank.creatures.push(tank.adopt(Creature.create({ x: 0.5, z: 0.95 })));
     // 他の子は交流しないように
     for (const c of tank.creatures.slice(2)) c.growth = 0.99;
-    tank.social.pairs[pairKey(a, b)] = MATE.MEETS - 1;
-    expect(run(tank, 30, () => tank.eggs.count === 1)).toBe(true);
+    tank.random = () => 0;
+    expect(run(tank, BREED.GIVE_UP + BREED.SECONDS + 1, () => tank.eggs.count === 1)).toBe(true);
     expect(tank.hasRoom).toBe(false);
     tank.eggs.list[0].progress = EGG.HATCH_SECONDS;
     tank.update(0.01, 0);
@@ -146,24 +207,26 @@ describe('交流と交配', () => {
 
     tank.social.pairs[pairKey(a, b)] = MATE.MEETS + 3;
     for (const c of [a, b]) {
-      c.meet = null;
+      c.breed = null;
       c.behavior.pause = 0;
     }
-    tank.social.timer = 0;
+    tank.social.breedTimer = 0;
     tank.social.approach = null;
-    run(tank, 40, () => tank.social.count(a, b) > MATE.MEETS + 3);
+    run(tank, 40, () => !!tank.social.breeding);
+    expect(tank.social.breeding).toBeNull();
     expect(tank.eggs.count).toBe(0);
 
-    // 1匹いなくなると、また交配できる
+    // 1匹いなくなると、また繁殖できる(準備はそのまま)
     tank.removeCreature(tank.creatures[4]);
     expect(tank.crowded).toBe(false);
-    expect(tank.social.count(a, b)).toBeGreaterThanOrEqual(MATE.MEETS);
+    expect(tank.readyToBreed(a)).toBe(true);
   });
 
   it('閉じていた間は、卵も成長も進まない', () => {
-    const { tank, a, b } = pairTank();
-    tank.social.pairs[pairKey(a, b)] = MATE.MEETS - 1;
-    run(tank, 30, () => tank.eggs.count === 1);
+    const { tank } = readyTank();
+    tank.random = () => 0;
+    run(tank, BREED.GIVE_UP + BREED.SECONDS + 1, () => tank.eggs.count === 1);
+    expect(tank.eggs.count).toBe(1);
     const data = JSON.parse(JSON.stringify(tank.toData()));
     data.creatures[0].growth = 0.2;
     data.savedAt = data.lastSeenAt = Date.now() - 10 * 86400000;

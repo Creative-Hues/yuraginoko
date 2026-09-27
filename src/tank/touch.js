@@ -1,8 +1,8 @@
 // 水槽へのタッチ操作。
 // - 弾く:短くタップ(押してから離すまで短く、ほとんど動かさない)
 // - 撫でる:生き物の上を指でなぞる
-// - 長押し:生き物の上で、指を動かさずに約0.5秒 → 観察モード
-// - ピンチ:2本の指を広げる → 観察モード、閉じる → 水槽に戻る
+// - 長押し:生き物(または卵)の上で、指を動かさずに約0.5秒 → 観察モード
+// - ピンチ:2本の指を広げる → 観察モード(生き物か卵)、閉じる → 水槽に戻る
 // - 掃除モード(cleanMode):擦った場所の藻が消える。生き物は反応しない
 // - 環境編集モード(editMode):植物を植える・動かす・選ぶ。生き物は反応しない
 //
@@ -30,15 +30,17 @@ export const interactMode = {
   down(st, env) {
     const { renderer, handlers } = env;
     st.target = renderer.hitTest(st.x, st.y);
+    st.egg = st.target ? null : renderer.eggAt(st.x, st.y); // 生き物に触れていなければ、卵
     st.stroked = new Set();
     st.fxDist = 0;
     renderer.addRipple(st.x, st.y, st.target ? 1 : 0.6);
-    if (st.target && handlers.onLongPress) {
+    const press = st.target ? handlers.onLongPress && (() => handlers.onLongPress(st.target.creature)) : st.egg && handlers.onEggPress && (() => handlers.onEggPress(st.egg));
+    if (press) {
       st.longTimer = setTimeout(() => {
         st.longTimer = null;
         if (st.done || st.moved > LONG_MOVE) return;
         st.longPressed = true;
-        handlers.onLongPress(st.target.creature);
+        press();
       }, LONG_PRESS);
     }
   },

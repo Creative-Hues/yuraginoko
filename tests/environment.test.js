@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { TANK_DATA_VERSION, Tank } from '../src/tank/tank.js';
-import { DEFAULT_ENV, ENV_CHANGE, NUTRIENT, PLANT_GROWTH, PLANT_LIMIT } from '../src/tank/envConfig.js';
+import { DEFAULT_ENV, ENV_CHANGE, NUTRIENT, PLANT_GROWTH, PLANT_LIMIT, SENSITIVITY, SENSITIVITY_KEYS } from '../src/tank/envConfig.js';
 import { normalizeEnv, targetFor } from '../src/tank/environment.js';
 import { plantStage } from '../src/tank/plants.js';
 import { DAY_MS } from '../src/tank/algae.js';
@@ -27,9 +27,17 @@ function tick(tank, seconds) {
   for (let i = 0; i < seconds; i++) tank.tickEnv(1);
 }
 
+const I = ENV_CHANGE.INTERVAL;
+
+// 受けやすさを全部「ふつう」にする(効き方の量を確かめやすいように。ふだんは1〜2個ずつ偏る)
+const EVEN = Object.fromEntries(SENSITIVITY_KEYS.map((k) => [k, 'normal']));
+
 function fromData(data) {
   const tank = Tank.fromData(data);
-  for (const c of tank.creatures) c.envTimer = 0;
+  for (const c of tank.creatures) {
+    c.envTimer = 0;
+    c.sensitivity = { ...EVEN };
+  }
   return tank;
 }
 
@@ -61,15 +69,17 @@ describe('環境', () => {
     expect(tank.creatures.map((c) => c.genes)).toEqual(before);
   });
 
-  it('20秒ごとに 0.015 ずつ、まとめて変わる。変わるときは光って、少しかけて変わる', () => {
+  it('1分ごとに 0.015 ずつ、まとめて変わる。光らずに、少しかけて静かに変わる', () => {
+    expect(I).toBe(60);
     const tank = fromData(v2());
     const c = tank.creatures[0];
     tank.setEnv({ soil: 'glowSand' });
-    tick(tank, 19);
+    tick(tank, I - 1);
     expect(c.genes.glow).toBe(0.2);
     tick(tank, 1);
-    expect(c.shiftGlow).toBe(1);
-    expect(tank.events.some((e) => e.type === 'envShift' && e.creature === c)).toBe(true);
+    expect(c.shift).not.toBeNull();
+    expect(c.shiftGlow).toBeUndefined();
+    expect(tank.events).toEqual([]);
     // 途中で閉じても、保存するのは変わりきったあとの値
     c.updateShift(ENV_CHANGE.SHIFT_SECONDS / 2);
     expect(c.genes.glow).toBeCloseTo(0.2075, 6);
@@ -78,7 +88,7 @@ describe('環境', () => {
     expect(c.genes.glow).toBeCloseTo(0.215, 6);
     // 泥:模様が網目(0.625 あたり)へ寄る
     tank.setEnv({ soil: 'mud' });
-    tick(tank, 20);
+    tick(tank, I);
     c.finishShift();
     expect(c.genes.pattern).toBeCloseTo(0.885, 6);
   });
@@ -87,9 +97,9 @@ describe('環境', () => {
     const tank = fromData(v2());
     const c = tank.creatures[0];
     tank.setEnv({ soil: 'glowSand' });
-    tick(tank, 5);
+    tick(tank, I / 4);
     tank.setEnv({ soil: 'sand' });
-    tick(tank, 15);
+    tick(tank, (I * 3) / 4);
     c.finishShift();
     expect(c.genes.glow).toBeCloseTo(0.2 + 0.015 / 4, 6);
   });
@@ -100,7 +110,7 @@ describe('環境', () => {
     a.genes.glow = 0.3;
     b.genes.glow = 0.3;
     tank.setEnv({ soil: 'glowSand' });
-    tick(tank, 20 * 60);
+    tick(tank, I * 60);
     a.finishShift();
     b.finishShift();
     for (const c of [a, b]) {
@@ -110,7 +120,7 @@ describe('環境', () => {
     expect(a.genes.glow).not.toBeCloseTo(b.genes.glow, 3);
     // 「上げる」効果は、もう越えている生き物を下げない
     a.genes.glow = 0.97;
-    tick(tank, 60);
+    tick(tank, I);
     a.finishShift();
     expect(a.genes.glow).toBe(0.97);
   });
@@ -120,7 +130,7 @@ describe('環境', () => {
     const c = tank.creatures[0];
     c.genes.translucency = 0.3;
     tank.setEnv({ light: { color: 'blue', brightness: 0 } });
-    tick(tank, 20);
+    tick(tank, I);
     c.finishShift();
     expect(c.genes.hue).toBeCloseTo(0.515, 6);
     expect(c.genes.translucency).toBeCloseTo(0.315, 6);
@@ -133,10 +143,39 @@ describe('環境', () => {
     c.genes.wriggliness = 0.5;
     c.genes.floatiness = 0.5;
     tank.setEnv({ current: { strength: 1, dir: -1 } });
-    tick(tank, 20);
+    tick(tank, I);
     c.finishShift();
     expect(c.genes.wriggliness).toBeCloseTo(0.515, 6);
     expect(c.genes.floatiness).toBeCloseTo(0.515, 6);
+  });
+
+  it('受けやすさで効き方が変わる(受けやすい 1.5倍・受けにくい 0.2倍)。エサは全員同じ', () => {
+    const tank = fromData(v2());
+    const [a, b] = tank.creatures;
+    a.genes.glow = b.genes.glow = 0.2;
+    a.sensitivity.soil = 'high';
+    b.sensitivity.soil = 'low';
+    tank.setEnv({ soil: 'glowSand' });
+    tick(tank, I);
+    a.finishShift();
+    b.finishShift();
+    expect(a.genes.glow).toBeCloseTo(0.2 + ENV_CHANGE.STEP * SENSITIVITY.LEVELS.high.scale, 6);
+    expect(b.genes.glow).toBeCloseTo(0.2 + ENV_CHANGE.STEP * SENSITIVITY.LEVELS.low.scale, 6);
+    // ほかの項目(光)には、土の受けやすさは関係しない
+    tank.setEnv({ soil: 'sand', light: { color: 'blue' } });
+    a.genes.hue = b.genes.hue = 0.5;
+    tick(tank, I);
+    a.finishShift();
+    b.finishShift();
+    expect(a.genes.hue).toBeCloseTo(b.genes.hue, 6);
+    // エサ:受けやすさに関係なく、同じだけ変わる
+    for (const c of [a, b]) {
+      c.genes.hue = 0.5;
+      c.meal = { stage: 'fed', food: 'red' };
+      c.digest();
+      c.updateDigest(100);
+    }
+    expect(a.genes.hue).toBeCloseTo(b.genes.hue, 9);
   });
 
   it('閉じている間は変わらない', () => {
@@ -154,20 +193,20 @@ describe('植物', () => {
     const c = tank.creatures[0];
     const m = c.points[Math.floor(c.points.length / 2)];
     const p = tank.plant('toge', m.x, m.z);
-    tick(tank, 20);
+    tick(tank, I);
     c.finishShift();
     expect(c.genes.spikeCount).toBe(0.4); // 芽のまま
     p.growth = 1;
     tank.plants.grow = () => false; // 育ち具合を固定して確かめる
-    tick(tank, 20);
+    tick(tank, I);
     c.finishShift();
     expect(c.genes.spikeCount).toBeCloseTo(0.415, 6);
     p.growth = 2;
-    tick(tank, 20);
+    tick(tank, I);
     c.finishShift();
     expect(c.genes.spikeCount).toBeCloseTo(0.4375, 6);
     tank.movePlant(p, m.x > 0.5 ? 0.04 : 0.96, m.z);
-    tick(tank, 20);
+    tick(tank, I);
     c.finishShift();
     expect(c.genes.spikeCount).toBeCloseTo(0.4375, 6);
   });

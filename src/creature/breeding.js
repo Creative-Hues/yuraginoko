@@ -1,6 +1,7 @@
 // 交配で生まれる赤ちゃんの遺伝子と特徴(描画はしない)。調整値は lifeConfig.js。
 import { GENE_DEFS, mixGenes } from './genes.js';
 import { MUTATION, QUIRKS, QUIRK_KEYS } from './lifeConfig.js';
+import { inheritSensitivity } from './sensitivity.js';
 import { clamp, lerp, wrap01 } from '../util/math.js';
 
 const WRAP = Object.fromEntries(GENE_DEFS.map((d) => [d.key, !!d.wrap]));
@@ -47,6 +48,7 @@ function bigShift(genes, key, rng) {
  * - 遺伝子は両親の値を混ぜる(ふだんの小さなゆらぎつき)
  * - 親の特徴は、1つずつ MUTATION.INHERIT の確率で受け継ぐ
  * - そのうえで必ず MUTATION.COUNT の範囲の項目数だけ、大きくずらす(遺伝子の大ずれ、または新しい特徴)
+ * - 環境の受けやすさは、項目ごとに両親のどちらかを受け継ぐ(ときどき変わる。sensitivity.js)
  */
 export function makeChild(a, b, rng) {
   const genes = mixGenes(a.genes, b.genes, rng, MUTATION.MIX_JITTER);
@@ -76,7 +78,8 @@ export function makeChild(a, b, rng) {
     shifted.add(key);
     mutations.push({ kind: 'gene', key, delta });
   }
-  return { genes, quirks, mutations };
+  const sensitivity = inheritSensitivity(a.sensitivity, b.sensitivity, rng);
+  return { genes, quirks, mutations, sensitivity };
 }
 
 // 親の写し(標本画面で親の姿を出すため)。祖父母までは持たない
