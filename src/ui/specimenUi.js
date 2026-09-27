@@ -18,28 +18,80 @@ function formatDate(ms) {
   return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
 }
 
-export function renderSpecimenList(root, { persona, specimens, onOpen, onBack }) {
+// onDelete(ids): 自分の標本のときだけ(「えらんで消す」を出す)。
+// selecting・selected: えらぶモードで開く(消す確認から「やめる」で戻ったとき、えらんだものはそのまま)
+export function renderSpecimenList(root, { persona, specimens, onOpen, onDelete, onBack, selecting = false, selected = [] }) {
+  const picked = new Set(selected.filter((id) => specimens.some((s) => s.id === id)));
+  let choosing = selecting && !!onDelete;
+
+  const toggle = (s) => {
+    if (picked.has(s.id)) picked.delete(s.id);
+    else picked.add(s.id);
+    sync();
+  };
+  const cards = specimens.map((s) => ({
+    s,
+    card: el('button', { class: 'specimen-card', type: 'button', onclick: () => (choosing ? toggle(s) : onOpen(s)) }, [
+      crystal(s.creature, 150, 100),
+      el('span', { class: 'specimen-name', text: displayName(s) }),
+      el('span', { class: 'pick-mark', text: '✓', 'aria-hidden': 'true' }),
+    ]),
+  }));
+
+  const lead = el('p', { class: 'quiet', text: '消す標本をえらんでください。' });
+  const deleteBtn = el('button', { class: 'btn', type: 'button', onclick: () => picked.size && onDelete([...picked]) });
+  const chooseRow = el('div', { class: 'row spread' }, [
+    el('button', {
+      class: 'btn sub',
+      type: 'button',
+      text: 'やめる',
+      onclick: () => {
+        choosing = false;
+        picked.clear();
+        sync();
+      },
+    }),
+    deleteBtn,
+  ]);
+  const normalRow = el('div', { class: 'row spread' }, [
+    onDelete && specimens.length
+      ? el('button', {
+          class: 'quiet-btn',
+          type: 'button',
+          text: 'えらんで消す',
+          onclick: () => {
+            choosing = true;
+            sync();
+          },
+        })
+      : el('span'),
+    el('button', { class: 'btn sub', type: 'button', text: 'もどる', onclick: onBack }),
+  ]);
+
+  function sync() {
+    for (const { s, card } of cards) {
+      card.classList.toggle('choosing', choosing);
+      card.setAttribute('aria-pressed', String(choosing && picked.has(s.id)));
+    }
+    lead.hidden = !choosing;
+    chooseRow.hidden = !choosing;
+    normalRow.hidden = choosing;
+    deleteBtn.textContent = `${picked.size}個を消す`;
+    deleteBtn.disabled = picked.size === 0;
+  }
+
   const grid = specimens.length
     ? el(
         'div',
         { class: 'specimen-grid' },
-        specimens.map((s) =>
-          el('button', { class: 'specimen-card', type: 'button', onclick: () => onOpen(s) }, [
-            crystal(s.creature, 150, 100),
-            el('span', { class: 'specimen-name', text: displayName(s) }),
-          ]),
-        ),
+        cards.map((c) => c.card),
       )
     : el('p', { text: '標本にした子は、ここに並びます。' });
-  root.replaceChildren(
-    el('div', { class: 'panel wide' }, [
-      el('h1', { text: `${persona.name}の標本` }),
-      grid,
-      el('div', { class: 'row' }, [el('button', { class: 'btn sub', type: 'button', text: 'もどる', onclick: onBack })]),
-    ]),
-  );
+  root.replaceChildren(el('div', { class: 'panel wide' }, [el('h1', { text: `${persona.name}の標本` }), lead, grid, chooseRow, normalRow]));
+  sync();
 }
 
+// onEdit: 自分の標本のときだけ(ほかの人の標本は見るだけ)
 export function renderSpecimenDetail(root, { specimen: s, onEdit, onBack }) {
   const parents = s.creature?.parents ?? [];
   const info = el('div', { class: 'specimen-info' }, [
@@ -70,7 +122,7 @@ export function renderSpecimenDetail(root, { specimen: s, onEdit, onBack }) {
     el('div', { class: 'detail-actions' }, [
       el('div', { class: 'detail-pair' }, [
         el('button', { class: 'btn sub', type: 'button', text: 'もどる', onclick: onBack }),
-        el('button', { class: 'btn', type: 'button', text: 'なおす', onclick: onEdit, 'aria-label': '名前と説明をなおす' }),
+        onEdit ? el('button', { class: 'btn', type: 'button', text: 'なおす', onclick: onEdit, 'aria-label': '名前と説明をなおす' }) : null,
       ]),
     ]),
   ]);

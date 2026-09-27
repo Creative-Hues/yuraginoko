@@ -1188,3 +1188,97 @@ body {
   font-size: 14px;
   box-shadow: 3px 3px 0 var(--ink);
 }
+
+/* ---- 棚の案内・色・繁殖しない・消す ---- */
+
+/* 左上のボタン:2行目に小さく「たなを開く」 */
+.pill-main,
+.pill-sub {
+  display: block;
+}
+.pill-sub {
+  margin-top: 1px;
+  font-size: 10px;
+  font-weight: 700;
+  opacity: 0.7;
+}
+
+.shelf-chips {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.shelf-foot {
+  display: flex;
+  justify-content: flex-end;
+}
+.shelf-foot .quiet-btn {
+  margin-top: 0;
+}
+
+/* 名前の色を選ぶ */
+.color-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 4px 2px;
+}
+.panel p.color-label {
+  margin: 14px 0 6px;
+  font-size: 13px;
+  font-weight: 800;
+}
+.color-dialog {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+/* 繁殖しない水槽の小さな印 */
+.tank-mark {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  padding: 0 5px;
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  background: rgba(244, 236, 255, 0.9);
+  color: var(--ink);
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1.5;
+}
+
+/* 標本をえらんで消す */
+.specimen-card {
+  position: relative;
+}
+.pick-mark {
+  display: none;
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 28px;
+  height: 28px;
+  border: 3px solid var(--ink);
+  border-radius: 50%;
+  background: var(--lime);
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 900;
+  line-height: 22px;
+  text-align: center;
+}
+.specimen-card.choosing {
+  opacity: 0.6;
+}
+.specimen-card.choosing[aria-pressed='true'] {
+  opacity: 1;
+}
+.specimen-card[aria-pressed='true'] .pick-mark {
+  display: block;
+}
+.panel [hidden] {
+  display: none;
+}

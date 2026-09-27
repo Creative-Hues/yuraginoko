@@ -1,7 +1,8 @@
 // IndexedDB への保存。データはすべてこの端末の中だけに置く(サーバーには送らない)。
 //
 // ストア
-// - personas:  { id, name, createdAt, lastOpenedAt, closedToRequests(おねがいを受け付けない。無ければ受け付ける) }
+// - personas:  { id, name, createdAt, lastOpenedAt, closedToRequests(おねがいを受け付けない。無ければ受け付ける),
+//              color(名前の背景色。無ければ登録順で決まる色) }
 // - aquaria:   水槽 { id, personaId, name, createdAt, version, seed, creatures: [...], things: {...}, savedAt, ... }(index: personaId)
 // - specimens: 標本 { id, personaId, name, note, madeAt, creature: {...}, ... }(index: personaId)
 // - moments:   図鑑(残した瞬間){ id, personaId, tankId, creatureId, name, note, takenAt, creature: {...}, look: {...} }(index: personaId)
@@ -93,13 +94,14 @@ export function getPersona(id) {
   return run('personas', 'readonly', (s) => s().get(id));
 }
 
-// 同じ名前がすでにあれば、新しく作らずにそれを返す
-export async function addPersona(name) {
+// 同じ名前がすでにあれば、新しく作らずにそれを返す。color: 名前の背景色(なければ登録順の色)
+export async function addPersona(name, color = null) {
   const trimmed = name.trim();
   const existing = (await listPersonas()).find((p) => p.name === trimmed);
   if (existing) return existing;
   const now = Date.now();
   const persona = { id: makeId(), name: trimmed, createdAt: now, lastOpenedAt: now };
+  if (color) persona.color = color;
   await run('personas', 'readwrite', (s) => s().put(persona));
   return persona;
 }
@@ -118,6 +120,38 @@ export async function setPersonaClosed(id, on) {
   const next = { ...persona, closedToRequests: !!on };
   await run('personas', 'readwrite', (s) => s().put(next));
   return next;
+}
+
+export async function setPersonaColor(id, color) {
+  const persona = await getPersona(id);
+  if (!persona) return null;
+  const next = { ...persona, color };
+  await run('personas', 'readwrite', (s) => s().put(next));
+  return next;
+}
+
+// 名前を消す:その人の水槽・図鑑・標本と、その人が出した・その人あてのおねがいを、まとめて消す
+export async function deletePersona(id) {
+  const db = await openDB();
+  const stores = ['personas', 'aquaria', 'specimens', 'moments', 'requests', 'tanks'];
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(stores, 'readwrite');
+    tx.objectStore('personas').delete(id);
+    tx.objectStore('tanks').delete(id); // フェーズ3までの控え
+    const byIndex = (store, index) => {
+      tx.objectStore(store).index(index).getAllKeys(id).onsuccess = (e) => {
+        for (const key of e.target.result) tx.objectStore(store).delete(key);
+      };
+    };
+    byIndex('aquaria', 'personaId');
+    byIndex('specimens', 'personaId');
+    byIndex('moments', 'personaId');
+    byIndex('requests', 'fromPersonaId');
+    byIndex('requests', 'toPersonaId');
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
 }
 
 // ---- 水槽 ----
@@ -152,10 +186,30 @@ export function saveTanks(list) {
   });
 }
 
-export async function renameTank(id, name) {
+// 名前と設定(noBreed: 繁殖しない)を直す
+export async function updateTank(id, { name, noBreed }) {
   const data = await loadTank(id);
   if (!data) return;
-  await saveTank({ ...data, name: String(name ?? '').trim() });
+  await saveTank({ ...data, name: String(name ?? '').trim(), noBreed: !!noBreed });
+}
+
+// 水槽を消す。その水槽の子へのおねがいも消し、そこを受け取る水槽にしていたおねがいは「新しい水槽」で受け取るようにする
+export async function deleteTank(id) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(['aquaria', 'requests'], 'readwrite');
+    tx.objectStore('aquaria').delete(id);
+    const requests = tx.objectStore('requests');
+    requests.getAll().onsuccess = (e) => {
+      for (const r of e.target.result) {
+        if (r.status === 'asked' && r.tankId === id) requests.delete(r.id);
+        else if (r.status === 'asked' && r.targetTankId === id) requests.put({ ...r, targetTankId: null });
+      }
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
 }
 
 // ---- 標本 ----
@@ -176,6 +230,13 @@ export function saveSpecimen(specimen, tankData = null) {
   return run(['specimens', 'aquaria'], 'readwrite', (s) => {
     s('specimens').put(specimen);
     if (tankData) s('aquaria').put({ ...tankData, savedAt: now });
+  });
+}
+
+// えらんだ標本をまとめて消す
+export function deleteSpecimens(ids) {
+  return run('specimens', 'readwrite', (s) => {
+    for (const id of ids) s().delete(id);
   });
 }
 

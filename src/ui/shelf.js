@@ -1,6 +1,6 @@
 // 水槽の棚:人ごとに1段の棚があり、その人の水槽が並ぶ。ほかの人の水槽は、押すと「のぞく」。
 // 水槽は DOM と CSS だけで描く(水の色・土の色・住んでいる子の色の点)。キャンバスは使わない。
-import { el, personaColor } from './dom.js';
+import { colorOf, el } from './dom.js';
 import { LIGHT_COLORS, SOILS } from '../tank/envConfig.js';
 import { normalizeEnv } from '../tank/environment.js';
 
@@ -34,27 +34,50 @@ function miniTank(rec, index, { current, onOpen, onRename, own }) {
       style: { background: `linear-gradient(${water[0]}, ${water[1]} 55%, ${water[2]})` },
       onclick: () => onOpen(rec),
     },
-    [el('span', { class: 'tank-soil', style: { background: soil } }), ...dots, ...eggs],
+    [
+      el('span', { class: 'tank-soil', style: { background: soil } }),
+      ...dots,
+      ...eggs,
+      rec.noBreed ? el('span', { class: 'tank-mark', text: '繁殖なし' }) : null,
+    ],
   );
   return el('div', { class: 'tank-slot' }, [
     box,
     el('div', { class: 'tank-name' }, [
       el('span', { text: tankLabel(rec, index) }),
-      own ? el('button', { class: 'rename-btn', type: 'button', 'aria-label': '名前をつける', text: '✎', onclick: () => onRename(rec, index) }) : null,
+      own ? el('button', { class: 'rename-btn', type: 'button', 'aria-label': '名前と設定', text: '✎', onclick: () => onRename(rec, index) }) : null,
     ]),
   ]);
 }
 
 // groups: [{ persona, index(人の順番), tanks: [保存データ] }]
-// viewerId: 今の人(その人の段だけ、開く・ふやす・名前をつける・おねがい。ほかの人の水槽は「のぞく」)
-export function renderShelf(root, { title = '水槽', lead, groups, viewerId, currentTankId, onOpen, onPeek, onAddTank, onRename, onSpecimens, onCollection, onRequests, onOther, onClose }) {
+// viewerId: 今の人(その人の段だけ、開く・ふやす・名前と設定・やりとり・色・消す。ほかの人の水槽は「のぞく」)
+export function renderShelf(root, {
+  title = '水槽',
+  lead,
+  groups,
+  viewerId,
+  currentTankId,
+  onOpen,
+  onPeek,
+  onAddTank,
+  onRename,
+  onSpecimens,
+  onCollection,
+  onRequests,
+  onColor,
+  onDeletePersona,
+  onOther,
+  onClose,
+}) {
   const shelves = groups.map(({ persona, index, tanks }) => {
     const own = !viewerId || persona.id === viewerId;
     return el('section', { class: 'shelf' }, [
       el('div', { class: 'shelf-head' }, [
-        el('span', { class: 'shelf-name', text: `${persona.name}の水槽`, style: { background: personaColor(index) } }),
+        el('span', { class: 'shelf-name', text: `${persona.name}の水槽`, style: { background: colorOf(persona, index) } }),
         el('div', { class: 'shelf-chips' }, [
-          own && onRequests ? el('button', { class: 'chip', type: 'button', text: 'おねがい', onclick: () => onRequests(persona) }) : null,
+          own && onRequests ? el('button', { class: 'chip', type: 'button', text: 'やりとり', onclick: () => onRequests(persona) }) : null,
+          own && onColor ? el('button', { class: 'chip', type: 'button', text: '名前の色', onclick: () => onColor(persona, index) }) : null,
           el('button', { class: 'chip', type: 'button', text: '図鑑', onclick: () => onCollection(persona) }),
           el('button', { class: 'chip', type: 'button', text: '標本', onclick: () => onSpecimens(persona) }),
         ]),
@@ -76,7 +99,13 @@ export function renderShelf(root, { title = '水槽', lead, groups, viewerId, cu
           : null,
       ]),
       el('div', { class: 'shelf-board' }),
-      own ? null : el('p', { class: 'shelf-note', text: '押すと、のぞくことができます' }),
+      own
+        ? onDeletePersona
+          ? el('div', { class: 'shelf-foot' }, [
+              el('button', { class: 'quiet-btn', type: 'button', text: 'この名前を消す', onclick: () => onDeletePersona(persona) }),
+            ])
+          : null
+        : el('p', { class: 'shelf-note', text: '押すと、のぞけます。見るだけで、さわったりエサをあげたりはできません' }),
     ]);
   });
   const panel = el('div', { class: 'panel wide' }, [
@@ -84,7 +113,7 @@ export function renderShelf(root, { title = '水槽', lead, groups, viewerId, cu
     lead ? el('p', { text: lead }) : null,
     ...shelves,
     el('div', { class: 'row spread' }, [
-      onOther ? el('button', { class: 'btn sub', type: 'button', text: 'ほかの名前', onclick: onOther }) : el('span'),
+      onOther ? el('button', { class: 'btn sub', type: 'button', text: 'ほかの人', onclick: onOther }) : el('span'),
       onClose ? el('button', { class: 'btn sub', type: 'button', text: 'とじる', onclick: onClose }) : null,
     ]),
   ]);

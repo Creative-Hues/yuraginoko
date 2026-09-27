@@ -2,8 +2,8 @@
 import { el } from './dom.js';
 
 // fields: [{ key, label, value, multiline, maxlength, placeholder }]
-// lead: 入力欄の上に出すもの(生き物の姿など)
-export function renderTextDialog(root, { title, lead, fields, okText = 'きめる', cancelText = 'もどる', onOk, onCancel }) {
+// lead: 入力欄の上に出すもの(生き物の姿など)、extra: 入力欄の下に出すもの(設定など)、after: 画面のいちばん下に出すもの
+export function renderTextDialog(root, { title, lead, extra, after, fields, okText = 'きめる', cancelText = 'もどる', onOk, onCancel }) {
   const inputs = {};
   const rows = fields.map((f) => {
     const input = el(f.multiline ? 'textarea' : 'input', {
@@ -21,6 +21,7 @@ export function renderTextDialog(root, { title, lead, fields, okText = 'きめ�
   });
   const form = el('form', { class: 'text-form' }, [
     ...rows,
+    extra,
     el('div', { class: 'row spread' }, [
       el('button', { class: 'btn sub', type: 'button', text: cancelText, onclick: () => onCancel() }),
       el('button', { class: 'btn', type: 'submit', text: okText }),
@@ -30,5 +31,5 @@ export function renderTextDialog(root, { title, lead, fields, okText = 'きめ�
     e.preventDefault();
     onOk(Object.fromEntries(Object.entries(inputs).map(([k, input]) => [k, input.value.trim()])));
   });
-  root.replaceChildren(el('div', { class: 'panel' }, [el('h1', { text: title }), lead, form]));
+  root.replaceChildren(el('div', { class: 'panel' }, [el('h1', { text: title }), lead, form, after]));
 }

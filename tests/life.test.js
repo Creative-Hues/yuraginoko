@@ -185,6 +185,29 @@ describe('交流と繁殖', () => {
     expect(tank.creatures).toHaveLength(2);
   });
 
+  it('繁殖しない水槽は、準備がたまっても繁殖しない。交流は続き、今ある卵はかえる', () => {
+    const { tank, a, b, bred } = readyTank();
+    tank.random = () => 0;
+    tank.mate(a, b);
+    tank.eggs.list[0].progress = EGG.HATCH_SECONDS - 0.01;
+    tank.setNoBreed(true);
+    expect(tank.readyToBreed(a)).toBe(false); // 観察の一言も出さない
+    tank.social.timer = 0;
+    let met = 0;
+    const orig = tank.met.bind(tank);
+    tank.met = (x, y) => {
+      met++;
+      return orig(x, y);
+    };
+    run(tank, BREED.GIVE_UP + DANCE_SECONDS + 1);
+    expect(bred()).toBe(0);
+    expect(tank.social.breeding).toBeNull();
+    expect(tank.eggs.count).toBe(0);
+    expect(tank.creatures).toHaveLength(3);
+    expect(met).toBeGreaterThan(0);
+    expect(tank.social.count(a, b)).toBeGreaterThanOrEqual(MATE.MEETS);
+  });
+
   it('最後まで終わっても産まなかったときは、準備ができたまま次を待つ', () => {
     const { tank, a, b, bred } = readyTank();
     tank.random = () => BREED.CHANCE + 0.01; // 外れ

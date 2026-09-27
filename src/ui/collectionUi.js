@@ -113,7 +113,8 @@ export function renderCollectionList(root, { persona, moments, tanks, onOpen, on
   requestAnimationFrame(drawSome);
 }
 
-// tankLabel: 残した水槽の名前、onVisit: 元の子が水槽にいるときだけ(今の姿を見に行く)
+// tankLabel: 残した水槽の名前、onVisit: 元の子が水槽にいるときだけ(今の姿を見に行く)。
+// onEdit・onDelete: 自分の図鑑のときだけ(ほかの人の図鑑は見るだけ)
 export function renderMomentDetail(root, { moment: m, tankLabel, onVisit, onEdit, onDelete, onBack }) {
   const c = m.creature ?? {};
   const info = el('div', { class: 'specimen-info' }, [
@@ -131,10 +132,10 @@ export function renderMomentDetail(root, { moment: m, tankLabel, onVisit, onEdit
     el('div', { class: 'detail-actions' }, [
       el('div', { class: 'detail-pair' }, [
         el('button', { class: 'btn sub', type: 'button', text: 'もどる', onclick: onBack }),
-        el('button', { class: 'btn', type: 'button', text: 'なおす', onclick: onEdit, 'aria-label': '名前とメモをなおす' }),
+        onEdit ? el('button', { class: 'btn', type: 'button', text: 'なおす', onclick: onEdit, 'aria-label': '名前とメモをなおす' }) : null,
       ]),
       onVisit ? el('button', { class: 'btn', type: 'button', text: '今の姿を見に行く', onclick: onVisit }) : null,
-      el('button', { class: 'quiet-btn', type: 'button', text: '図鑑から消す', onclick: onDelete }),
+      onDelete ? el('button', { class: 'quiet-btn', type: 'button', text: '図鑑から消す', onclick: onDelete }) : null,
     ]),
   ]);
   root.replaceChildren(el('div', { class: 'panel wide specimen-detail' }, [photo(m, 260, 173, 'large').frame, info]));

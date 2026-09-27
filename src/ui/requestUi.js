@@ -1,6 +1,6 @@
 // おねがい(ほかの人の水槽の子をもらいたい)の画面。
 // - おねがいする:受け取る自分の水槽を選ぶ(いっぱいでも選べる)
-// - おねがいの一覧:出したおねがい(取り消せる)・届いているおねがい(あげる/今はやめておく)・受け付けるかどうかの設定
+// - やりとりの画面:出したおねがい(取り消せる)・届いているおねがい(あげる/今はやめておく)・受け付けるかどうかの設定
 // - 持ち主への知らせ:「〈名前〉が、この子をほしがっています」
 // - 届いた知らせ:「〈名前〉から届きました」
 // 急かしたり、否定的に聞こえたりする言い方はしない。
@@ -93,13 +93,14 @@ export function renderRequestList(root, { persona, outgoing, incoming, closed, o
 
   root.replaceChildren(
     el('div', { class: 'panel wide' }, [
-      el('h1', { text: `${persona.name}のおねがい` }),
+      el('h1', { text: `${persona.name}のやりとり` }),
+      el('p', { text: 'ほかの人の水槽の子を、もらったりあげたりするところです。' }),
       el('h2', { class: 'collection-tank', text: '届いているおねがい' }),
+      el('p', { class: 'quiet', text: `${persona.name}の水槽の子を、ほしがっている人がいるときに、ここに並びます。` }),
       ...(incomingCards.length ? incomingCards : [el('p', { class: 'quiet', text: '今はありません。' })]),
       el('h2', { class: 'collection-tank', text: '出したおねがい' }),
-      ...(outgoingCards.length
-        ? outgoingCards
-        : [el('p', { class: 'quiet', text: '今はありません。ほかの人の水槽をのぞいて、観察しているときに出せます。' })]),
+      el('p', { class: 'quiet', text: 'ほかの人の水槽をのぞいて、観察で「この子をもらいたい」から出せます。' }),
+      ...(outgoingCards.length ? outgoingCards : [el('p', { class: 'quiet', text: '今はありません。' })]),
       el('h2', { class: 'collection-tank', text: 'ほかの人からのおねがい' }),
       el('div', { class: 'chip-row' }, setting),
       el('p', {

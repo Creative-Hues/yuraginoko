@@ -21,6 +21,7 @@ import { BREED, EGG, GROW, TANK_CAPACITY } from '../creature/lifeConfig.js';
 // - 4: id・name・createdAt(1人が複数の水槽を持てるように)、social(交流の回数)、eggs(卵)、
 //      生き物ごとの growth・mutations・parents・bornAt を追加(quirks は後になくした。古いデータにあっても読み込まない)
 //   (版はそのままで、生き物ごとの sensitivity(環境の受けやすさ)と traits(特徴遺伝子)を追加。無いデータは genes と seed から決める)
+//   (版はそのままで、noBreed(繁殖しない)を追加。無いデータは繁殖する)
 export const TANK_DATA_VERSION = 4;
 
 const OBSERVED_PACE = 0.6; // 観察中の1匹は、画面から逃げにくいよう少しゆっくり
@@ -43,6 +44,7 @@ export class Tank {
     this.id = data.id ?? data.personaId; // フェーズ3までの水槽は、人の id が水槽の id
     this.name = typeof data.name === 'string' ? data.name : '';
     this.createdAt = Number(data.createdAt ?? data.savedAt) || Date.now();
+    this.noBreed = data.noBreed === true; // 繁殖しない(交流はする。今ある卵はかえる)
     this.seed = data.seed ?? randomSeed(); // 底の小石など、水槽ごとの景色に使う
     this.creatures = (data.creatures ?? []).map((d) => this.adopt(new Creature(d)));
     // 水槽内のもの(藻など)と環境設定。知らない中身も消さずにそのまま保存し直す
@@ -157,9 +159,19 @@ export class Tank {
     return this.mate(a, b);
   }
 
-  // 観察中に出す一言:繁殖の準備ができている相手がいるか
+  // 観察中に出す一言:繁殖の準備ができている相手がいるか(繁殖しない水槽では出さない)
   readyToBreed(c) {
-    return this.social.hasReadyPartner(c, this.creatures);
+    return !this.noBreed && this.social.hasReadyPartner(c, this.creatures);
+  }
+
+  // 繁殖しない / する。しないにしたら、近づいている途中・寄り添っている途中の繁殖もやめる(交流の回数はそのまま)
+  setNoBreed(on) {
+    this.noBreed = !!on;
+    if (this.noBreed) {
+      if (this.social.approach?.kind === 'breed') this.social.cancel();
+      this.social.stopBreeding();
+    }
+    this.dirty = true;
   }
 
   // 交配:どちらかが、しっぽの後ろの砂に卵を産む
@@ -305,10 +317,12 @@ export class Tank {
       c.update(dt, t);
     }
     this.updateFood(dt);
-    // のぞいている間は、泳ぐ・触れ合うだけ(繁殖・卵・環境による変化・植物の成長は進めない)
-    const social = this.social.update(dt, this.creatures, this.canBreed && !this.peek);
+    // のぞいている間は、泳ぐ・触れ合うだけ(繁殖・卵・環境による変化・植物の成長は進めない)。
+    // 繁殖しない水槽は、交流だけ(準備がたまっても繁殖しない)
+    const breeds = !this.peek && !this.noBreed;
+    const social = this.social.update(dt, this.creatures, this.canBreed && breeds);
     if (social?.type === 'met') this.met(social.a, social.b);
-    else if (social?.type === 'bred' && !this.peek) this.bred(social.a, social.b);
+    else if (social?.type === 'bred' && breeds) this.bred(social.a, social.b);
     if (this.peek) return;
     const br = this.social.breeding;
     if (br?.bubbled) {
@@ -350,6 +364,7 @@ export class Tank {
       personaId: this.personaId,
       name: this.name,
       createdAt: this.createdAt,
+      noBreed: this.noBreed,
       version: TANK_DATA_VERSION,
       seed: this.seed,
       lastSeenAt: this.lastSeenAt,

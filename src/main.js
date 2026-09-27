@@ -3,7 +3,10 @@ import {
   addPersona,
   addRequest,
   deleteMoment,
+  deletePersona,
   deleteRequest,
+  deleteSpecimens,
+  deleteTank,
   giveCreature,
   listAllTanks,
   listMoments,
@@ -16,14 +19,15 @@ import {
   markOpened,
   markRequestNoticed,
   pruneRequests,
-  renameTank,
   saveMoment,
   saveSpecimen,
   saveTank,
   saveTanks,
   setPersonaClosed,
+  setPersonaColor,
   updateMoment,
   updateSpecimen,
+  updateTank,
 } from './storage/db.js';
 import { Tank } from './tank/tank.js';
 import { Creature } from './creature/creature.js';
@@ -38,9 +42,10 @@ import { renderShelf, tankLabel } from './ui/shelf.js';
 import { renderHomeChoice } from './ui/homeUi.js';
 import { renderSpecimenDetail, renderSpecimenList } from './ui/specimenUi.js';
 import { renderTextDialog } from './ui/textDialog.js';
+import { renderConfirm } from './ui/confirmUi.js';
 import { renderArrivalNotice, renderAskForm, renderRequestList, renderRequestNotice } from './ui/requestUi.js';
 import { photo, renderCollectionList, renderMomentDelete, renderMomentDetail } from './ui/collectionUi.js';
-import { el } from './ui/dom.js';
+import { colorOf, colorPicker, el } from './ui/dom.js';
 import { createObserveUi } from './ui/observeUi.js';
 import { createEditUi } from './ui/editUi.js';
 import { showError, watchErrors } from './ui/errorBox.js';
@@ -442,7 +447,10 @@ async function refreshTankButton() {
   await attempt('水槽の一覧', async () => (tanks = await listTanks(persona.id)));
   const index = Math.max(0, tanks.findIndex((t) => t.id === tank.id));
   current.label = tankLabel(tank, index);
-  tankButton.textContent = tanks.length > 1 || tank.name ? `${persona.name}・${current.label}` : `${persona.name}の水槽`;
+  tankButton.replaceChildren(
+    el('span', { class: 'pill-main', text: tanks.length > 1 || tank.name ? `${persona.name}・${current.label}` : `${persona.name}の水槽` }),
+    el('span', { class: 'pill-sub', text: 'たなを開く' }),
+  );
 }
 
 // ---- 掃除モード ----
@@ -625,24 +633,29 @@ async function showWho({ canGoBack = false } = {}) {
   renderWhoScreen(overlay, {
     personas,
     onPick: (p) => attempt('水槽をひらく', () => pickTank(p)),
-    onCreate: (name) => attempt('水槽をひらく', async () => pickTank(await addPersona(name))),
+    onCreate: (name, color) => attempt('水槽をひらく', async () => pickTank(await addPersona(name, color))),
     onBack: canGoBack ? closeOverlay : null,
   });
 }
 
 // ---- 水槽の棚 ----
-// only: その人の棚だけを出す(「今は誰?」で水槽が2つ以上あったとき)
-async function showShelf({ only = null, title } = {}) {
+// only: その人の棚だけを出す(「今は誰?」で水槽が2つ以上あったとき)。
+// viewer: 今の人(開いている水槽を消したあとなど、水槽を開いていないとき)
+const SHELF_LEAD = '水槽の切り替え・図鑑・標本・やりとりは、ここから。';
+
+async function showShelf({ only = null, title, viewer: who = null } = {}) {
   await saveCurrent();
   const personas = await listPersonas();
   const tanks = await listAllTanks();
-  const viewer = only ?? me();
+  const viewer = only ?? who ?? me();
+  const own = (persona) => persona.id === viewer?.id;
   const groups = personas
     .map((persona, index) => ({ persona, index, tanks: tanks.filter((t) => t.personaId === persona.id) }))
     .filter((g) => (only ? g.persona.id === only.id : g.tanks.length > 0 || g.persona.id === viewer?.id));
-  const again = () => showShelf({ only, title });
+  const again = () => showShelf({ only, title, viewer: who });
   renderShelf(overlay, {
     title,
+    lead: SHELF_LEAD,
     groups,
     viewerId: viewer?.id,
     currentTankId: current?.tank.id,
@@ -655,27 +668,57 @@ async function showShelf({ only = null, title } = {}) {
         await saveTank(tank.toData());
         await openTank(persona, tank.id);
       }),
-    onRename: (persona, rec, index) => showRename(rec, index, again),
-    onSpecimens: (persona) => attempt('標本', () => showSpecimens(persona, again)),
-    onCollection: (persona) => attempt('図鑑', () => showCollection(persona, again)),
+    onRename: (persona, rec, index) => showTankSettings(persona, rec, index, again),
+    onColor: (persona, index) => showColor(persona, index, again),
+    onDeletePersona: (persona) => confirmDeletePersona(persona, again),
+    onSpecimens: (persona) => attempt('標本', () => showSpecimens(persona, again, own(persona))),
+    onCollection: (persona) => attempt('図鑑', () => showCollection(persona, again, own(persona))),
     onOther: () => showWho({ canGoBack: !!current }),
     onClose: current ? closeOverlay : null,
   });
 }
 
-function showRename(rec, index, back) {
+// 水槽の名前と設定(繁殖する・しない)。いちばん下に「この水槽を消す」
+function showTankSettings(persona, rec, index, back) {
+  const open = current && !current.peek && current.tank.id === rec.id;
+  let noBreed = open ? current.tank.noBreed : rec.noBreed === true;
+  const choices = [
+    { on: false, label: 'する' },
+    { on: true, label: 'しない' },
+  ].map((o) =>
+    el('button', {
+      class: 'chip',
+      type: 'button',
+      text: o.label,
+      onclick: () => {
+        noBreed = o.on;
+        sync();
+      },
+    }),
+  );
+  const sync = () => [false, true].forEach((on, i) => choices[i].setAttribute('aria-pressed', String(on === noBreed)));
+  sync();
   renderTextDialog(overlay, {
-    title: '水槽の名前',
+    title: '水槽の名前と設定',
     fields: [{ key: 'name', label: '名前', value: rec.name ?? '', placeholder: tankLabel({}, index) }],
+    extra: el('div', { class: 'field' }, [
+      el('span', { class: 'field-label', text: '繁殖' }),
+      el('div', { class: 'chip-row' }, choices),
+      el('p', { class: 'quiet', text: 'しないにしても、交流はふつうにします。今ある卵は、そのままかえります。' }),
+    ]),
+    after: el('div', { class: 'row' }, [
+      el('button', { class: 'quiet-btn', type: 'button', text: 'この水槽を消す', onclick: () => confirmDeleteTank(persona, rec, index, back) }),
+    ]),
     onCancel: back,
     onOk: ({ name }) =>
-      attempt('名前をつける', async () => {
-        // 開いている水槽は、中の名前も変える(次の保存で元に戻らないように)
-        if (current?.tank.id === rec.id) {
+      attempt('名前と設定', async () => {
+        // 開いている水槽は、中も変える(次の保存で元に戻らないように)
+        if (open && current?.tank.id === rec.id) {
           current.tank.name = name;
+          current.tank.setNoBreed(noBreed);
           await saveCurrent();
         } else {
-          await renameTank(rec.id, name);
+          await updateTank(rec.id, { name, noBreed });
         }
         await refreshTankButton();
         await back();
@@ -683,35 +726,134 @@ function showRename(rec, index, back) {
   });
 }
 
+// 開いている水槽を画面から外す(消したとき)
+async function closeCurrent() {
+  await resetModes();
+  current = null;
+  incomingCount = 0;
+  renderer.setTank(null);
+  syncUi();
+}
+
+// 水槽を消す(確認1回)。今開いている水槽なら、画面から外して棚に戻る
+function confirmDeleteTank(persona, rec, index, back) {
+  const open = current && !current.peek && current.tank.id === rec.id;
+  const creatures = open ? current.tank.creatures.length : (rec.creatures?.length ?? 0);
+  const eggs = open ? current.tank.eggs.count : (rec.eggs?.length ?? 0);
+  const label = tankLabel(rec, index);
+  const inside = [creatures ? `中の${creatures}匹` : '', eggs ? `たまご${eggs}個` : ''].filter(Boolean).join('と');
+  renderConfirm(overlay, {
+    title: '水槽を消す',
+    lines: [`「${label}」を消しますか?`, inside ? `${inside}も、いっしょに消えます。` : ''].filter(Boolean),
+    onCancel: () => showTankSettings(persona, rec, index, back),
+    onOk: () =>
+      attempt('水槽を消す', async () => {
+        if (open) await closeCurrent();
+        await deleteTank(rec.id);
+        if (open) return showShelf({ viewer: persona });
+        await refreshTankButton();
+        await refreshRequestButton();
+        await back();
+      }),
+  });
+}
+
+// 3(a). 名前を消す(確認2回)。消したら「今は誰?」へ
+function confirmDeletePersona(persona, back) {
+  renderConfirm(overlay, {
+    title: '名前を消す',
+    lines: [`「${persona.name}」を消しますか?`],
+    okText: 'つぎへ',
+    onCancel: back,
+    onOk: () =>
+      renderConfirm(overlay, {
+        title: '名前を消す',
+        lines: [`${persona.name}の水槽・図鑑・標本と、やりとりのおねがいが、すべて消えます。`, 'それでも消しますか?'],
+        okText: 'すべて消す',
+        onCancel: back,
+        onOk: () =>
+          attempt('名前を消す', async () => {
+            if (current?.persona.id === persona.id || current?.peek?.viewer.id === persona.id) await closeCurrent();
+            await deletePersona(persona.id);
+            await showWho({ canGoBack: !!current });
+          }),
+      }),
+  });
+}
+
+// 5. 名前の色を変える
+function showColor(persona, index, back) {
+  let color = colorOf(persona, index);
+  const sample = el('span', { class: 'shelf-name', text: `${persona.name}の水槽`, style: { background: color } });
+  renderConfirm(overlay, {
+    title: '名前の色',
+    lead: el('div', { class: 'color-dialog' }, [
+      sample,
+      colorPicker(color, (c) => {
+        color = c;
+        sample.style.background = c;
+      }),
+    ]),
+    okText: 'きめる',
+    cancelText: 'もどる',
+    onCancel: back,
+    onOk: () =>
+      attempt('名前の色', async () => {
+        await setPersonaColor(persona.id, color);
+        if (current?.persona.id === persona.id) current.persona.color = color;
+        await back();
+      }),
+  });
+}
+
 // ---- 標本 ----
-async function showSpecimens(persona, back) {
+// own: 自分の標本(なおす・えらんで消す)。selected: えらぶモードで開く(確認から戻ったとき)
+async function showSpecimens(persona, back, own, selected = null) {
   const specimens = await listSpecimens(persona.id);
+  const again = (ids = null) => attempt('標本', () => showSpecimens(persona, back, own, ids));
   renderSpecimenList(overlay, {
     persona,
     specimens,
-    onOpen: (s) => showSpecimen(s, () => attempt('標本', () => showSpecimens(persona, back))),
+    selecting: !!selected,
+    selected: selected ?? [],
+    onOpen: (s) => showSpecimen(s, () => again(), own),
+    onDelete: own
+      ? (ids) =>
+          renderConfirm(overlay, {
+            title: '標本を消す',
+            lines: [`えらんだ${ids.length}個の標本を消しますか?`],
+            onCancel: () => again(ids),
+            onOk: () =>
+              attempt('標本を消す', async () => {
+                await deleteSpecimens(ids);
+                await again();
+              }),
+          })
+      : null,
     onBack: back,
   });
 }
 
-function showSpecimen(specimen, back) {
+function showSpecimen(specimen, back, own) {
   renderSpecimenDetail(overlay, {
     specimen,
     onBack: back,
-    onEdit: () =>
-      renderTextDialog(overlay, {
-        title: '名前と説明',
-        fields: [
-          { key: 'name', label: '名前', value: specimen.name },
-          { key: 'note', label: '説明', value: specimen.note, multiline: true },
-        ],
-        onCancel: () => showSpecimen(specimen, back),
-        onOk: (values) =>
-          attempt('名前と説明', async () => {
-            const next = (await updateSpecimen(specimen.id, values)) ?? specimen;
-            showSpecimen(next, back);
-          }),
-      }),
+    onEdit: !own
+      ? null
+      : () =>
+        renderTextDialog(overlay, {
+          title: '名前と説明',
+          fields: [
+            { key: 'name', label: '名前', value: specimen.name },
+            { key: 'note', label: '説明', value: specimen.note, multiline: true },
+          ],
+          onCancel: () => showSpecimen(specimen, back, own),
+          onOk: (values) =>
+            attempt('名前と説明', async () => {
+              const next = (await updateSpecimen(specimen.id, values)) ?? specimen;
+              showSpecimen(next, back, own);
+            }),
+        }),
   });
 }
 
@@ -772,15 +914,16 @@ async function keepMoment() {
   });
 }
 
-async function showCollection(persona, back) {
+// own: 自分の図鑑(なおす・図鑑から消す)
+async function showCollection(persona, back, own) {
   const moments = await listMoments(persona.id);
   const tanks = (await listTanks(persona.id)).map((t, i) => ({ id: t.id, label: tankLabel(t, i), creatures: t.creatures ?? [] }));
-  const again = () => attempt('図鑑', () => showCollection(persona, back));
+  const again = () => attempt('図鑑', () => showCollection(persona, back, own));
   renderCollectionList(overlay, {
     persona,
     moments,
     tanks,
-    onOpen: (m) => attempt('図鑑', () => showMoment(m, persona, tanks, again)),
+    onOpen: (m) => attempt('図鑑', () => showMoment(m, persona, tanks, again, own)),
     onBack: back,
   });
 }
@@ -792,37 +935,41 @@ function findCreatureTank(personaId, creatureId, tanks) {
   return t?.id ?? null;
 }
 
-function showMoment(moment, persona, tanks, back) {
+function showMoment(moment, persona, tanks, back, own) {
   const tankId = findCreatureTank(persona.id, moment.creatureId, tanks);
   renderMomentDetail(overlay, {
     moment,
     tankLabel: tanks.find((t) => t.id === moment.tankId)?.label ?? moment.tankLabel,
     onBack: back,
     onVisit: tankId ? () => attempt('今の姿を見に行く', () => visitCreature(persona, tankId, moment.creatureId)) : null,
-    onEdit: () =>
-      renderTextDialog(overlay, {
-        title: '名前とメモ',
-        fields: [
-          { key: 'name', label: '名前', value: moment.name },
-          { key: 'note', label: 'メモ', value: moment.note, multiline: true },
-        ],
-        onCancel: () => showMoment(moment, persona, tanks, back),
-        onOk: (values) =>
-          attempt('名前とメモ', async () => {
-            const next = (await updateMoment(moment.id, values)) ?? moment;
-            showMoment(next, persona, tanks, back);
-          }),
-      }),
-    onDelete: () =>
-      renderMomentDelete(overlay, {
-        moment,
-        onCancel: () => showMoment(moment, persona, tanks, back),
-        onOk: () =>
-          attempt('図鑑から消す', async () => {
-            await deleteMoment(moment.id);
-            await back();
-          }),
-      }),
+    onEdit: !own
+      ? null
+      : () =>
+        renderTextDialog(overlay, {
+          title: '名前とメモ',
+          fields: [
+            { key: 'name', label: '名前', value: moment.name },
+            { key: 'note', label: 'メモ', value: moment.note, multiline: true },
+          ],
+          onCancel: () => showMoment(moment, persona, tanks, back, own),
+          onOk: (values) =>
+            attempt('名前とメモ', async () => {
+              const next = (await updateMoment(moment.id, values)) ?? moment;
+              showMoment(next, persona, tanks, back, own);
+            }),
+        }),
+    onDelete: !own
+      ? null
+      : () =>
+        renderMomentDelete(overlay, {
+          moment,
+          onCancel: () => showMoment(moment, persona, tanks, back, own),
+          onOk: () =>
+            attempt('図鑑から消す', async () => {
+              await deleteMoment(moment.id);
+              await back();
+            }),
+        }),
   });
 }
 

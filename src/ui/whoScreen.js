@@ -1,5 +1,5 @@
-// 「今は誰?」画面。登録済みの人から選ぶか、新しく名前を入れる。
-import { el, personaColor } from './dom.js';
+// 「今は誰?」画面。登録済みの人から選ぶか、新しく名前を入れる(名前の背景色も選べる)。
+import { colorOf, colorPicker, el, personaColor } from './dom.js';
 
 export function renderWhoScreen(root, { personas, onPick, onCreate, onBack }) {
   const input = el('input', {
@@ -11,14 +11,22 @@ export function renderWhoScreen(root, { personas, onPick, onCreate, onBack }) {
     'aria-label': 'なまえ',
   });
   const go = el('button', { class: 'btn', type: 'submit', text: 'ひらく', disabled: true });
-  input.addEventListener('input', () => {
+  // 新しい人の色(はじめは、今までどおり登録順の色)
+  let color = personaColor(personas.length);
+  const syncGo = () => {
     go.disabled = input.value.trim() === '';
-  });
+    go.style.background = color;
+  };
+  input.addEventListener('input', syncGo);
   const form = el('form', { class: 'name-form' }, [input, go]);
   form.addEventListener('submit', (e) => {
     e.preventDefault();
     const name = input.value.trim();
-    if (name) onCreate(name);
+    if (name) onCreate(name, color);
+  });
+  const picker = colorPicker(color, (c) => {
+    color = c;
+    syncGo();
   });
 
   const choices =
@@ -31,7 +39,7 @@ export function renderWhoScreen(root, { personas, onPick, onCreate, onBack }) {
           class: 'btn',
           type: 'button',
           text: p.name,
-          style: { background: personaColor(i) },
+          style: { background: colorOf(p, i) },
           onclick: () => onPick(p),
         }),
       ),
@@ -44,7 +52,10 @@ export function renderWhoScreen(root, { personas, onPick, onCreate, onBack }) {
       text: personas.length ? 'ほかの名前で開くこともできます。' : '名前を入れると、その人の水槽ができます。',
     }),
     form,
+    el('p', { class: 'color-label', text: '名前の色' }),
+    picker,
     onBack && el('div', { class: 'row' }, [el('button', { class: 'btn sub', type: 'button', text: 'もどる', onclick: onBack })]),
   ]);
   root.replaceChildren(panel);
+  syncGo();
 }
