@@ -1365,3 +1365,144 @@ label.btn {
   display: flex;
   justify-content: flex-end;
 }
+
+/* ---- 遊び方 ---- */
+
+/* 右上、音のボタンの左隣の「?」(音と同じ丸) */
+.help-btn {
+  position: fixed;
+  top: calc(var(--safe-top) + 16px);
+  right: calc(var(--safe-right) + 134px);
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 3px solid var(--ink);
+  border-radius: 50%;
+  background: rgba(244, 236, 255, 0.7);
+  color: var(--ink);
+  font: inherit;
+  font-size: 22px;
+  font-weight: 900;
+  line-height: 1;
+  box-shadow: 2px 2px 0 var(--ink);
+}
+.help-btn[hidden] {
+  display: none;
+}
+.help-btn:active {
+  transform: translate(2px, 2px);
+  box-shadow: none;
+}
+/* 左上の名前のボタンが、右上のボタン(?・音・環境)に重ならないように */
+#tank-button {
+  max-width: calc(100vw - var(--safe-left) - var(--safe-right) - 210px);
+}
+
+/* 初めての人に一度だけ:「?」の下の小さな吹き出し。押さなくても自然に消える */
+.help-hint {
+  position: fixed;
+  z-index: 5;
+  top: calc(var(--safe-top) + 70px);
+  right: calc(var(--safe-right) + 110px);
+  max-width: calc(100vw - var(--safe-left) - var(--safe-right) - 140px);
+  padding: 6px 12px;
+  border: 3px solid var(--ink);
+  border-radius: 14px;
+  background: rgba(244, 236, 255, 0.9);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 800;
+  box-shadow: 2px 2px 0 var(--ink);
+  pointer-events: none;
+  opacity: 0;
+  animation: help-hint 6.5s ease-in-out forwards;
+}
+.help-hint::before {
+  /* 「?」を指す小さな三角 */
+  content: '';
+  position: absolute;
+  top: -10px;
+  right: 39px;
+  border: 7px solid transparent;
+  border-top: none;
+  border-bottom: 9px solid var(--ink);
+}
+@keyframes help-hint {
+  0% {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  10%,
+  85% {
+    opacity: 1;
+    transform: none;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .help-hint {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+/* 遊び方の項目(押すと開く) */
+.help-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.help-item {
+  border: 3px solid var(--ink);
+  border-radius: 14px;
+  background: rgba(244, 236, 255, 0.08);
+  box-shadow: 3px 3px 0 var(--ink);
+}
+.help-item summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 6px 14px;
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--paper);
+  list-style: none;
+  cursor: pointer;
+}
+.help-item summary::-webkit-details-marker {
+  display: none;
+}
+.help-item summary::before {
+  content: '▸';
+  color: var(--lime);
+}
+.help-item[open] summary::before {
+  content: '▾';
+}
+.help-item[open] summary {
+  color: var(--lime);
+}
+.help-item ul {
+  margin: 0;
+  padding: 0 16px 12px 34px;
+}
+.help-item li {
+  margin-bottom: 6px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #e8dcff;
+}
+
+/* 棚の見出しの行:タイトルと「? 遊び方」 */
+.panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.panel-head .chip {
+  flex: none;
+}

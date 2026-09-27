@@ -3,7 +3,8 @@
 // ストア
 // - personas:  { id, name, createdAt, lastOpenedAt, closedToRequests(おねがいを受け付けない。無ければ受け付ける),
 //              color(名前の背景色。無ければ登録順で決まる色)、
-//              sound(音の設定 { on, ambient, effects }。無ければ音なし) }
+//              sound(音の設定 { on, ambient, effects }。無ければ音なし)、
+//              helpHintShown(「?から遊び方を見られます」を一度知らせた。無ければまだ) }
 // - aquaria:   水槽 { id, personaId, name, createdAt, version, seed, creatures: [...], things: {...}, savedAt, ... }(index: personaId)
 // - specimens: 標本 { id, personaId, name, note, madeAt, creature: {...}, ... }(index: personaId)
 // - moments:   図鑑(残した瞬間){ id, personaId, tankId, creatureId, name, note, takenAt, creature: {...}, look: {...} }(index: personaId)
@@ -128,6 +129,15 @@ export async function setPersonaColor(id, color) {
   const persona = await getPersona(id);
   if (!persona) return null;
   const next = { ...persona, color };
+  await run('personas', 'readwrite', (s) => s().put(next));
+  return next;
+}
+
+// 「?から遊び方を見られます」を知らせた(もう出さない)
+export async function markHelpHintShown(id) {
+  const persona = await getPersona(id);
+  if (!persona || persona.helpHintShown) return persona ?? null;
+  const next = { ...persona, helpHintShown: true };
   await run('personas', 'readwrite', (s) => s().put(next));
   return next;
 }

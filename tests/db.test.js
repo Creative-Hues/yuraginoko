@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto';
 import { afterEach, describe, expect, it } from 'vitest';
-import { addPersona, closeDB, getPersona, listPersonas, loadTank, saveTank, setPersonaSound } from '../src/storage/db.js';
+import { addPersona, closeDB, getPersona, listPersonas, loadTank, markHelpHintShown, saveTank, setPersonaSound } from '../src/storage/db.js';
 import { normalizeSound } from '../src/audio/sound.js';
 import { TANK_DATA_VERSION, Tank } from '../src/tank/tank.js';
 
@@ -153,5 +153,21 @@ describe('音の設定', () => {
     expect((await getPersona(a.id)).sound).toEqual({ on: true, ambient: 0.2, effects: 0.8 });
     expect((await getPersona(a.id)).name).toBe('テスト1');
     expect(normalizeSound((await getPersona(b.id)).sound).on).toBe(false);
+  });
+});
+
+describe('遊び方の知らせ', () => {
+  it('知らせたことは人ごとに覚え、ほかの設定は変わらない。記録の無い人は、まだ', async () => {
+    const a = await addPersona('テスト1', '#ff3da6');
+    const b = await addPersona('テスト2');
+    await setPersonaSound(a.id, { on: true, ambient: 0.2, effects: 0.8 });
+    expect((await getPersona(a.id)).helpHintShown).toBeUndefined();
+    await markHelpHintShown(a.id);
+    const after = await getPersona(a.id);
+    expect(after.helpHintShown).toBe(true);
+    expect(after.name).toBe('テスト1');
+    expect(after.color).toBe('#ff3da6');
+    expect(after.sound).toEqual({ on: true, ambient: 0.2, effects: 0.8 });
+    expect((await getPersona(b.id)).helpHintShown).toBeUndefined();
   });
 });

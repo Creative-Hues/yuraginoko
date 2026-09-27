@@ -70,6 +70,7 @@ export function renderShelf(root, {
   onDeletePersona,
   onOther,
   onBackup,
+  onHelp,
   onClose,
 }) {
   const shelves = groups.map(({ persona, index, tanks }) => {
@@ -112,7 +113,10 @@ export function renderShelf(root, {
     ]);
   });
   const panel = el('div', { class: 'panel wide' }, [
-    el('h1', { text: title }),
+    el('div', { class: 'panel-head' }, [
+      el('h1', { text: title }),
+      onHelp ? el('button', { class: 'chip', type: 'button', text: '? 遊び方', onclick: onHelp }) : null,
+    ]),
     lead ? el('p', { text: lead }) : null,
     ...shelves,
     onBackup

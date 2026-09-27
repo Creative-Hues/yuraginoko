@@ -19,6 +19,7 @@ import {
   listSpecimens,
   listTanks,
   loadTank,
+  markHelpHintShown,
   markOpened,
   markRequestNoticed,
   pruneRequests,
@@ -62,6 +63,7 @@ import { chirpPitch, normalizeSound, sound, useAmbientSession } from './audio/so
 import { SOUNDS } from './audio/soundConfig.js';
 import { renderSoundSettings } from './ui/soundUi.js';
 import { renderBackupMenu, renderImportFailed, renderImportPreview } from './ui/backupUi.js';
+import { renderHelp } from './ui/helpUi.js';
 
 watchErrors();
 
@@ -83,6 +85,7 @@ const editButton = document.getElementById('edit-button');
 const homeButton = document.getElementById('home-button');
 const requestButton = document.getElementById('request-button');
 const soundButton = document.getElementById('sound-button');
+const helpButton = document.getElementById('help-button');
 const peekBar = document.getElementById('peek-bar');
 const peekText = document.getElementById('peek-text');
 const peekBack = document.getElementById('peek-back');
@@ -132,6 +135,7 @@ let observingEgg = null; // 観察中の卵
 let editing = false; // 環境編集モード
 let plantKind = null; // 編集モードで、植えるために選んでいる種類
 let selectedPlant = null; // 編集モードで、選んでいる植物
+let helpHint = null; // 出ている「?から遊び方を見られます」の吹き出し
 
 const touch = createTouchController(canvas, renderer, {
   onLongPress: (creature) => enterObserve(creature),
@@ -255,6 +259,7 @@ async function openTank(persona, tankId, { notices = true } = {}) {
   closeOverlay();
   if (notices) await attempt('おねがい', () => showNotices(persona));
   await refreshRequestButton();
+  await attempt('遊び方の知らせ', () => maybeHelpHint(persona));
 }
 
 // ---- ほかの人の水槽をのぞく ----
@@ -631,6 +636,8 @@ function syncUi() {
   cleanButton.hidden = !tank || watching || editing || peeking; // 藻の量に関係なく、いつでも掃除できる
   editButton.hidden = !tank || watching || peeking;
   soundButton.hidden = !tank || watching || editing;
+  helpButton.hidden = !tank || watching || editing || peeking;
+  if (helpButton.hidden || overlay.hasChildNodes()) hideHelpHint(); // ほかの画面を開いたら、吹き出しはしまう
   const on = String(!!me() && normalizeSound(me().sound).on);
   if (soundButton.getAttribute('aria-pressed') !== on) soundButton.setAttribute('aria-pressed', on);
   if (editing && tank) {
@@ -717,6 +724,7 @@ async function showShelf({ only = null, title, viewer: who = null } = {}) {
     onCollection: (persona) => attempt('図鑑', () => showCollection(persona, again, own(persona))),
     onOther: () => showWho({ canGoBack: !!current }),
     onBackup: () => attempt('データの書き出し・読み込み', () => showBackup(again)),
+    onHelp: () => showHelp(again),
     onClose: current ? closeOverlay : null,
   });
 }
@@ -848,6 +856,46 @@ function showColor(persona, index, back) {
         await back();
       }),
   });
+}
+
+// ---- 遊び方 ----
+
+function showHelp(back) {
+  renderHelp(overlay, { onBack: back });
+}
+
+// 水槽の「?」。押したら、もう吹き出しで知らせない
+helpButton.addEventListener('click', () => {
+  hideHelpHint();
+  const who = current && !current.peek ? current.persona : null;
+  if (who && !who.helpHintShown) {
+    who.helpHintShown = true;
+    attempt('遊び方の知らせ', () => markHelpHintShown(who.id));
+  }
+  showHelp(closeOverlay);
+});
+
+const HELP_HINT_MS = 6500; // 吹き出しが自然に消えるまで(CSS のアニメーションと同じ長さ)
+
+function hideHelpHint() {
+  helpHint?.remove();
+  helpHint = null;
+}
+
+// 初めて水槽を開いた人にだけ、一度だけ「?」の場所を控えめに知らせる(人ごとに覚える)。
+// ほかの知らせが出ているときは、次に開いたときに回す
+async function maybeHelpHint(persona) {
+  if (!current || current.peek || current.persona.id !== persona.id) return;
+  if (persona.helpHintShown || overlay.hasChildNodes() || helpButton.hidden) return;
+  persona.helpHintShown = true;
+  await markHelpHintShown(persona.id);
+  hideHelpHint();
+  const hint = el('div', { class: 'help-hint', role: 'status', text: '?から遊び方を見られます' });
+  helpHint = hint;
+  document.body.append(hint);
+  setTimeout(() => {
+    if (helpHint === hint) hideHelpHint();
+  }, HELP_HINT_MS);
 }
 
 // ---- 音(人ごと。最初は音なし) ----
