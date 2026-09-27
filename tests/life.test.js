@@ -172,6 +172,19 @@ describe('交流と繁殖', () => {
     expect(baby.adult).toBe(false);
   });
 
+  it('のぞいている間は、繁殖を始めず、卵もかえらない', () => {
+    const { tank, bred } = readyTank();
+    tank.random = () => 0;
+    tank.peek = true;
+    tank.mate(tank.creatures[0], tank.creatures[1]);
+    tank.eggs.list[0].progress = EGG.HATCH_SECONDS - 0.01;
+    run(tank, BREED.GIVE_UP + DANCE_SECONDS + 1);
+    expect(bred()).toBe(0);
+    expect(tank.social.breeding).toBeNull();
+    expect(tank.eggs.count).toBe(1);
+    expect(tank.creatures).toHaveLength(2);
+  });
+
   it('最後まで終わっても産まなかったときは、準備ができたまま次を待つ', () => {
     const { tank, a, b, bred } = readyTank();
     tank.random = () => BREED.CHANCE + 0.01; // 外れ

@@ -63,6 +63,7 @@ export class Tank {
     this.events = []; // 描画側に知らせること(食べたときの泡など)
     this.envClock = 0; // 植物が育つのと環境の記録を、ENV_TICK 秒ごとに進める
     this.random = Math.random; // 芽が出るか・どちらが卵を産むかの判定(確認用に差し替えられる)
+    this.peek = false; // ほかの人がのぞいている(保存せず、見た目の動きだけ)
     this.dirty = false;
   }
 
@@ -304,9 +305,11 @@ export class Tank {
       c.update(dt, t);
     }
     this.updateFood(dt);
-    const social = this.social.update(dt, this.creatures, this.canBreed);
+    // のぞいている間は、泳ぐ・触れ合うだけ(繁殖・卵・環境による変化・植物の成長は進めない)
+    const social = this.social.update(dt, this.creatures, this.canBreed && !this.peek);
     if (social?.type === 'met') this.met(social.a, social.b);
-    else if (social?.type === 'bred') this.bred(social.a, social.b);
+    else if (social?.type === 'bred' && !this.peek) this.bred(social.a, social.b);
+    if (this.peek) return;
     const br = this.social.breeding;
     if (br?.bubbled) {
       br.bubbled = false;

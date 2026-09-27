@@ -5,6 +5,7 @@
 // - ピンチ:2本の指を広げる → 観察モード(生き物か卵)、閉じる → 水槽に戻る
 // - 掃除モード(cleanMode):擦った場所の藻が消える。生き物は反応しない
 // - 環境編集モード(editMode):植物を植える・動かす・選ぶ。生き物は反応しない
+// - のぞくモード(peekMode):ほかの人の水槽。長押し・ピンチで観察に寄るだけ。生き物は反応しない
 //
 // setMode で操作の中身を差し替える。
 // 指の位置は、画面上の位置 (sx, sy) と、水槽の座標 (x, y)(観察モードの拡大を戻したもの)の両方を持つ。
@@ -67,6 +68,30 @@ export const interactMode = {
       env.renderer.addBubbles(st.x, st.y, 3 + Math.floor(Math.random() * 3));
     }
     for (const c of st.stroked) c.endStroke();
+  },
+};
+
+// のぞくモード(ほかの人の水槽):水面の波紋と、長押しで観察に寄ることだけ。撫でる・弾くは起きない
+export const peekMode = {
+  down(st, env) {
+    const { renderer, handlers } = env;
+    const hit = renderer.hitTest(st.x, st.y);
+    const egg = hit ? null : renderer.eggAt(st.x, st.y);
+    renderer.addRipple(st.x, st.y, 0.6);
+    const press = hit ? () => handlers.onLongPress?.(hit.creature) : egg && (() => handlers.onEggPress?.(egg));
+    if (press) {
+      st.longTimer = setTimeout(() => {
+        st.longTimer = null;
+        if (st.done || st.moved > LONG_MOVE) return;
+        press();
+      }, LONG_PRESS);
+    }
+  },
+  move(st) {
+    if (st.moved > LONG_MOVE) cancelLongPress(st);
+  },
+  up(st) {
+    cancelLongPress(st);
   },
 };
 

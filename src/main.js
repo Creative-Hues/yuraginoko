@@ -1,19 +1,27 @@
 import './style.css';
 import {
   addPersona,
+  addRequest,
   deleteMoment,
+  deleteRequest,
+  giveCreature,
   listAllTanks,
   listMoments,
   listPersonas,
+  listRequestsFrom,
+  listRequestsTo,
   listSpecimens,
   listTanks,
   loadTank,
   markOpened,
+  markRequestNoticed,
+  pruneRequests,
   renameTank,
   saveMoment,
   saveSpecimen,
   saveTank,
   saveTanks,
+  setPersonaClosed,
   updateMoment,
   updateSpecimen,
 } from './storage/db.js';
@@ -23,13 +31,14 @@ import { TANK_CAPACITY } from './creature/lifeConfig.js';
 import { portrait as creaturePortrait } from './creature/portrait.js';
 import { makeId } from './util/random.js';
 import { TankRenderer } from './tank/renderer.js';
-import { cleanMode, createTouchController, editMode, interactMode } from './tank/touch.js';
+import { cleanMode, createTouchController, editMode, interactMode, peekMode } from './tank/touch.js';
 import { ALGAE } from './tank/algae.js';
 import { renderWhoScreen } from './ui/whoScreen.js';
 import { renderShelf, tankLabel } from './ui/shelf.js';
 import { renderHomeChoice } from './ui/homeUi.js';
 import { renderSpecimenDetail, renderSpecimenList } from './ui/specimenUi.js';
 import { renderTextDialog } from './ui/textDialog.js';
+import { renderArrivalNotice, renderAskForm, renderRequestList, renderRequestNotice } from './ui/requestUi.js';
 import { photo, renderCollectionList, renderMomentDelete, renderMomentDetail } from './ui/collectionUi.js';
 import { el } from './ui/dom.js';
 import { createObserveUi } from './ui/observeUi.js';
@@ -57,6 +66,10 @@ const tankButton = document.getElementById('tank-button');
 const cleanButton = document.getElementById('clean-button');
 const editButton = document.getElementById('edit-button');
 const homeButton = document.getElementById('home-button');
+const requestButton = document.getElementById('request-button');
+const peekBar = document.getElementById('peek-bar');
+const peekText = document.getElementById('peek-text');
+const peekBack = document.getElementById('peek-back');
 
 const renderer = new TankRenderer(canvas);
 renderer.onError = (err) => showError(err, '描画');
@@ -69,9 +82,15 @@ renderer.onTankEvent = (e) => {
   if (!overlay.hasChildNodes()) attempt('すみかを決める', () => showHome({ newborn: e.creature?.id }));
 };
 
-// persona, tank, keepSaved(true のときは保存しない:読み込みに失敗した水槽の元のデータを上書きしないため)、
-// label(水槽の表示名)
+// persona(水槽の持ち主), tank, keepSaved(true のときは保存しない:読み込みに失敗した水槽の元のデータを上書きしないため)、
+// label(水槽の表示名)、peek(ほかの人の水槽をのぞいているとき { viewer: 今の人, backTankId: もどる水槽, asked: おねがい済みの子の id })
 let current = null;
+let incomingCount = 0; // 今の人に届いている、まだ決めていないおねがいの数(隅のボタンを出すかどうか)
+
+// 今の人(のぞいているときは、のぞいている人)
+const me = () => current?.peek?.viewer ?? current?.persona ?? null;
+// ふつうの操作(のぞいているときは、眺めるだけ)
+const baseMode = () => (current?.peek ? peekMode : interactMode);
 let cleaning = false;
 let observing = null; // 観察中の生き物
 let observingEgg = null; // 観察中の卵
@@ -118,9 +137,12 @@ const observeUi = createObserveUi(document.getElementById('observe-ui'), {
     syncUi();
   },
   onCare: () => {
-    if (observing) attempt('この子のこと', () => showHome({ selected: observing.id }));
+    if (observing && !current?.peek) attempt('この子のこと', () => showHome({ selected: observing.id }));
   },
   onKeep: () => attempt('図鑑に残す', () => keepMoment()),
+  onAsk: () => {
+    if (observing && current?.peek) attempt('この子をもらいたい', () => showAskForm(observing));
+  },
 });
 
 // seen: 今この水槽を見ていたか(見ていた時刻として残す)
@@ -164,8 +186,9 @@ async function pickTank(persona) {
   return showShelf({ only: persona, title: 'どの水槽を見ますか?' });
 }
 
-// tankId の水槽を開く。null なら新しい水槽(初期の環境で、新しい2匹)を作って開く
-async function openTank(persona, tankId) {
+// tankId の水槽を開く。null なら新しい水槽(初期の環境で、新しい2匹)を作って開く。
+// notices: 開いたあとに、届いた知らせ・おねがいの知らせを出す
+async function openTank(persona, tankId, { notices = true } = {}) {
   await resetModes();
   await saveCurrent();
 
@@ -184,12 +207,231 @@ async function openTank(persona, tankId) {
   if (data && built) await attempt('藻', () => tank.catchUp(Date.now(), fakeDays));
 
   current = { persona, tank, keepSaved, label: '' };
+  touch.setMode(interactMode);
+  observeUi.setPeek(null);
   await saveCurrent(true);
   await attempt('開いた時刻', () => markOpened(persona.id));
   await attempt('背景の準備', () => renderer.setTank(tank));
   await refreshTankButton();
   await attempt('ボタン', () => syncUi());
   closeOverlay();
+  if (notices) await attempt('おねがい', () => showNotices(persona));
+  await refreshRequestButton();
+}
+
+// ---- ほかの人の水槽をのぞく ----
+// 眺める・観察で寄るだけ。のぞいている水槽は保存しない(keepSaved)。卵・繁殖・環境による変化も進めない(tank.peek)
+async function peekTank(owner, tankId) {
+  const viewer = me();
+  if (!viewer || owner.id === viewer.id) return;
+  const backTankId = current?.peek?.backTankId ?? current?.tank.id ?? null;
+  const data = await loadTank(tankId);
+  if (!data) return;
+  await resetModes();
+  await saveCurrent();
+  const tank = Tank.fromData(data);
+  tank.peek = true;
+  tank.catchUp(); // 見た目を持ち主が開いたときと合わせる(保存はしない)
+  let asked = [];
+  await attempt('おねがい', async () => (asked = await listRequestsFrom(viewer.id)));
+  current = {
+    persona: owner,
+    tank,
+    keepSaved: true,
+    label: '',
+    peek: { viewer, backTankId, asked: new Set(asked.filter((r) => r.status === 'asked').map((r) => r.creatureId)) },
+  };
+  touch.setMode(peekMode);
+  await attempt('背景の準備', () => renderer.setTank(tank));
+  peekText.textContent = `${owner.name}の水槽をのぞいています`;
+  incomingCount = 0;
+  syncUi();
+  closeOverlay();
+}
+
+// のぞくのをやめて、自分の水槽に戻る
+async function endPeek() {
+  const peek = current?.peek;
+  if (!peek) return;
+  if (peek.backTankId) await openTank(peek.viewer, peek.backTankId);
+  else await pickTank(peek.viewer);
+}
+
+peekBack.addEventListener('click', () => attempt('自分の水槽にもどる', () => endPeek()));
+
+// 観察中の子に「この子をもらいたい」を出せるか
+function peekState(creature) {
+  const peek = current?.peek;
+  if (!peek) return null;
+  return { canAsk: !current.persona.closedToRequests, asked: peek.asked.has(creature.id) };
+}
+
+// ---- おねがい ----
+
+// 受け取る自分の水槽を選んで、おねがいを出す
+async function showAskForm(c) {
+  const { persona: owner, tank, peek } = current;
+  const tanks = (await listTanks(peek.viewer.id)).map((t, i) => ({ id: t.id, label: tankLabel(t, i), count: t.creatures?.length ?? 0 }));
+  renderAskForm(overlay, {
+    ownerName: owner.name,
+    creature: c.toJSON(),
+    tanks,
+    onCancel: closeOverlay,
+    onOk: (targetTankId) =>
+      attempt('おねがいする', async () => {
+        await addRequest({
+          fromPersonaId: peek.viewer.id,
+          toPersonaId: owner.id,
+          tankId: tank.id,
+          creatureId: c.id,
+          targetTankId,
+          creature: c.toJSON(),
+        });
+        peek.asked.add(c.id);
+        if (observing === c) observeUi.setPeek(peekState(c));
+        closeOverlay();
+        syncUi();
+      }),
+  });
+}
+
+// 隅の控えめなボタン:まだ決めていない、届いているおねがいがあるときだけ
+async function refreshRequestButton() {
+  incomingCount = 0;
+  if (current && !current.peek) {
+    await attempt('おねがい', async () => {
+      await pruneRequests();
+      incomingCount = (await listRequestsTo(current.persona.id)).filter((r) => r.status === 'asked').length;
+    });
+  }
+  syncUi();
+}
+
+requestButton.addEventListener('click', () => {
+  if (current && !current.peek) attempt('おねがい', () => showRequests(current.persona, closeOverlay));
+});
+
+// 名前を引くための一覧
+async function personaNames() {
+  const personas = await listPersonas();
+  return { personas, name: (id) => personas.find((p) => p.id === id)?.name ?? '' };
+}
+
+// おねがいの一覧(出したもの・届いているもの・受け付けるかどうか)
+async function showRequests(persona, back) {
+  await pruneRequests();
+  const { personas, name } = await personaNames();
+  const self = personas.find((p) => p.id === persona.id) ?? persona;
+  const tanks = await listTanks(persona.id);
+  const label = (id) => {
+    const i = tanks.findIndex((t) => t.id === id);
+    return i < 0 ? '新しい水槽' : tankLabel(tanks[i], i);
+  };
+  const incoming = (await listRequestsTo(persona.id)).filter((r) => r.status === 'asked');
+  const outgoing = (await listRequestsFrom(persona.id)).filter((r) => r.status === 'asked');
+  // 一覧で見たものは、もう知らせとしては出さない
+  for (const r of incoming) if (!r.noticedAt) await markRequestNoticed(r.id);
+  const again = () => attempt('おねがい', () => showRequests(persona, back));
+  renderRequestList(overlay, {
+    persona: self,
+    closed: !!self.closedToRequests,
+    incoming: incoming.map((r) => ({ request: r, fromName: name(r.fromPersonaId) })),
+    outgoing: outgoing.map((r) => ({ request: r, ownerName: name(r.toPersonaId), targetLabel: label(r.targetTankId) })),
+    onWithdraw: (r) =>
+      attempt('取り消す', async () => {
+        await deleteRequest(r.id);
+        await again();
+      }),
+    onGive: (r) => attempt('あげる', () => give(r)),
+    onNotNow: (r) =>
+      attempt('今はやめておく', async () => {
+        await deleteRequest(r.id);
+        await refreshRequestButton();
+        await again();
+      }),
+    onSetClosed: (on) =>
+      attempt('おねがいの設定', async () => {
+        await setPersonaClosed(persona.id, on);
+        if (current?.persona.id === persona.id) current.persona.closedToRequests = !!on;
+        await again();
+      }),
+    onBack: back,
+  });
+}
+
+// 水槽を開いたときの知らせ。届いたもの(おねがいした人へ)を先に、次にまだ知らせていないおねがい(持ち主へ)。
+// どれも1回だけ出す(あとは隅のボタンや棚の「おねがい」から見られる)
+async function showNotices(persona) {
+  if (!current || current.peek || current.persona.id !== persona.id) return;
+  await pruneRequests();
+  const { name } = await personaNames();
+  const next = () => attempt('おねがい', () => showNotices(persona));
+  const done = async () => {
+    closeOverlay();
+    await next();
+  };
+
+  const arrived = (await listRequestsFrom(persona.id)).find((r) => r.status === 'given');
+  if (arrived) {
+    await deleteRequest(arrived.id);
+    const tanks = await listTanks(persona.id);
+    const i = tanks.findIndex((t) => t.id === arrived.arrivedTankId);
+    renderArrivalNotice(overlay, {
+      request: arrived,
+      ownerName: name(arrived.toPersonaId),
+      tankLabel: i < 0 ? '' : tankLabel(tanks[i], i),
+      onClose: done,
+      onVisit: i < 0 ? null : () => attempt('見に行く', () => visitArrived(persona, arrived)),
+    });
+    return;
+  }
+
+  const fresh = (await listRequestsTo(persona.id)).find((r) => r.status === 'asked' && !r.noticedAt);
+  if (!fresh) return;
+  await markRequestNoticed(fresh.id);
+  renderRequestNotice(overlay, {
+    request: fresh,
+    fromName: name(fresh.fromPersonaId),
+    onGive: () => attempt('あげる', () => give(fresh)),
+    onNotNow: () =>
+      attempt('今はやめておく', async () => {
+        await deleteRequest(fresh.id);
+        await refreshRequestButton();
+        await done();
+      }),
+    onLater: done,
+  });
+}
+
+// 届いた子を見に行く。その水槽が5匹なら、すみかを決める画面(その子を選んだ状態で)
+async function visitArrived(persona, request) {
+  if (current?.tank.id !== request.arrivedTankId) await openTank(persona, request.arrivedTankId, { notices: false });
+  closeOverlay();
+  if (current.tank.crowded) return showHome({ selected: request.creatureId, arrived: request.creatureId });
+  const c = current.tank.creatures.find((x) => x.id === request.creatureId);
+  if (c) enterObserve(c);
+}
+
+// あげる:その子を、おねがいした人の水槽へ引っ越させる(移すときと同じ泡)。遺伝子・親の記録などはそのまま
+async function give(request) {
+  if (!current || current.peek || current.persona.id !== request.toPersonaId) return;
+  const owner = current.persona;
+  if (current.tank.id !== request.tankId) await openTank(owner, request.tankId, { notices: false });
+  const { tank } = current;
+  const c = tank.creatures.find((x) => x.id === request.creatureId);
+  if (!c || current.keepSaved) {
+    closeOverlay();
+    await refreshRequestButton();
+    return;
+  }
+  let target = null;
+  if (request.targetTankId) {
+    const data = await loadTank(request.targetTankId);
+    if (data?.personaId === request.fromPersonaId) target = Tank.fromData(data);
+  }
+  target ??= Tank.createEmpty(request.fromPersonaId);
+  await sendAway(c, target, (targetData) => giveCreature([tank.toData(), targetData], { ...request, creature: c.toJSON() }, target.id));
+  await refreshRequestButton();
 }
 
 // 左上のボタン:「〈人〉の水槽」。水槽が2つ以上か名前があれば「〈人〉・〈水槽の名前〉」
@@ -207,7 +449,7 @@ async function refreshTankButton() {
 function setCleaning(on) {
   if (on && editing) setEditing(false);
   cleaning = on;
-  touch.setMode(on ? cleanMode : interactMode);
+  touch.setMode(on ? cleanMode : baseMode());
   cleanButton.setAttribute('aria-pressed', String(on));
   syncUi();
 }
@@ -235,7 +477,7 @@ function setEditing(on) {
   editing = on;
   plantKind = null;
   selectPlant(null);
-  touch.setMode(on ? editMode : interactMode);
+  touch.setMode(on ? editMode : baseMode());
   editButton.setAttribute('aria-pressed', String(on));
   if (on) editUi.show();
   else editUi.hide();
@@ -299,6 +541,7 @@ function enterObserve(creature) {
   observing = creature;
   current.tank.focus = creature;
   renderer.setFocus(creature);
+  observeUi.setPeek(peekState(creature));
   observeUi.show();
   syncUi();
 }
@@ -336,10 +579,13 @@ function exitObserve() {
 function syncUi() {
   const tank = current?.tank;
   const watching = !!observing || !!observingEgg;
-  tankButton.hidden = !tank || watching || editing;
-  homeButton.hidden = !tank?.crowded || watching || editing || cleaning;
-  cleanButton.hidden = !tank || watching || editing; // 藻の量に関係なく、いつでも掃除できる
-  editButton.hidden = !tank || watching;
+  const peeking = !!current?.peek; // のぞいているときは、眺める・寄るだけ
+  tankButton.hidden = !tank || watching || editing || peeking;
+  peekBar.hidden = !peeking || watching;
+  homeButton.hidden = !tank?.crowded || watching || editing || cleaning || peeking;
+  requestButton.hidden = !tank || !incomingCount || watching || editing || cleaning || peeking;
+  cleanButton.hidden = !tank || watching || editing || peeking; // 藻の量に関係なく、いつでも掃除できる
+  editButton.hidden = !tank || watching || peeking;
   if (editing && tank) {
     // 抜かれた植物は選ばない
     if (selectedPlant && !tank.plants.list.includes(selectedPlant)) selectPlant(null);
@@ -390,15 +636,19 @@ async function showShelf({ only = null, title } = {}) {
   await saveCurrent();
   const personas = await listPersonas();
   const tanks = await listAllTanks();
+  const viewer = only ?? me();
   const groups = personas
     .map((persona, index) => ({ persona, index, tanks: tanks.filter((t) => t.personaId === persona.id) }))
-    .filter((g) => (only ? g.persona.id === only.id : g.tanks.length > 0 || g.persona.id === current?.persona.id));
+    .filter((g) => (only ? g.persona.id === only.id : g.tanks.length > 0 || g.persona.id === viewer?.id));
   const again = () => showShelf({ only, title });
   renderShelf(overlay, {
     title,
     groups,
+    viewerId: viewer?.id,
     currentTankId: current?.tank.id,
     onOpen: (persona, rec) => attempt('水槽をひらく', () => openTank(persona, rec.id)),
+    onPeek: (persona, rec) => attempt('のぞく', () => peekTank(persona, rec.id)),
+    onRequests: (persona) => attempt('おねがい', () => showRequests(persona, again)),
     onAddTank: (persona) =>
       attempt('水槽をふやす', async () => {
         const tank = Tank.createNew(persona.id);
@@ -479,7 +729,7 @@ function snapLight() {
 
 // 押した瞬間の姿(揺らぎを含めた見た目も)を写し、名前とメモをつけて図鑑に残す。生き物は水槽にいたまま
 async function keepMoment() {
-  if (!observing || !current || keeping) return;
+  if (!observing || !current || current.peek || keeping) return;
   const c = observing;
   const { persona, tank } = current;
   const moment = {
@@ -576,17 +826,22 @@ function showMoment(moment, persona, tanks, back) {
   });
 }
 
-// その子のいる水槽を開いて、観察モードで見る
+// その子のいる水槽を開いて、観察モードで見る(ほかの人の水槽なら、のぞく)
 async function visitCreature(persona, tankId, creatureId) {
-  if (current?.tank.id !== tankId) await openTank(persona, tankId);
+  const viewer = me();
+  if (viewer && persona.id !== viewer.id) {
+    if (current?.tank.id !== tankId) await peekTank(persona, tankId);
+  } else if (current?.tank.id !== tankId || current?.peek) {
+    await openTank(persona, tankId);
+  }
   closeOverlay();
   const c = current?.tank.creatures.find((x) => x.id === creatureId);
   if (c) enterObserve(c);
 }
 
 // ---- すみかを決める(標本にする・別の水槽へ移す) ----
-// selected: 最初から選んでおく子の id、newborn: 生まれたばかりの子の id
-async function showHome({ selected = null, newborn = null } = {}) {
+// selected: 最初から選んでおく子の id、newborn: 生まれたばかりの子の id、arrived: ほかの人から届いたばかりの子の id
+async function showHome({ selected = null, newborn = null, arrived = null } = {}) {
   if (!current) return;
   await resetModes();
   const { persona, tank } = current;
@@ -597,11 +852,15 @@ async function showHome({ selected = null, newborn = null } = {}) {
     if ((t.creatures?.length ?? 0) + (t.eggs?.length ?? 0) < TANK_CAPACITY) targets.push({ id: t.id, label: tankLabel(t, i) });
   }
   renderHomeChoice(overlay, {
-    creatures: tank.creatures.map((c) => ({ id: c.id, data: c.toJSON(), newborn: c.id === newborn })),
+    creatures: tank.creatures.map((c) => ({
+      id: c.id,
+      data: c.toJSON(),
+      badge: c.id === newborn ? '生まれたばかり' : c.id === arrived ? '届いたばかり' : null,
+    })),
     selectedId: selected,
     targets,
     crowded: tank.crowded,
-    onSpecimen: (id) => showSpecimenForm(id, () => showHome({ selected: id, newborn })),
+    onSpecimen: (id) => showSpecimenForm(id, () => showHome({ selected: id, newborn, arrived })),
     onNewTank: (id) => attempt('新しい水槽へ', () => moveCreature(id, null)),
     onMove: (id, tankId) => attempt('別の水槽へ', () => moveCreature(id, tankId)),
     onLater: () => {
@@ -640,7 +899,7 @@ async function makeSpecimen(c, name, note) {
   await saveSpecimen(specimen, current.keepSaved ? null : tank.toData());
   renderer.farewells.add(c, 'crystal');
   closeOverlay();
-  syncUi();
+  await refreshRequestButton(); // 標本になった子へのおねがいは消える
 }
 
 // 別の水槽へ移す。tankId が null なら、新しい水槽(初期の環境で、この子だけ)を作る
@@ -656,9 +915,16 @@ async function moveCreature(id, tankId) {
   } else {
     target = Tank.createEmpty(persona.id);
   }
+  await sendAway(c, target, (targetData) => saveTanks(current.keepSaved ? [targetData] : [tank.toData(), targetData]));
+  await refreshRequestButton(); // ほかの水槽に移った子へのおねがいは消える
+}
+
+// 今の水槽の子 c を target へ引っ越させる(泡に包まれて昇る)。遺伝子・特徴遺伝子・受けやすさ・親の記録はそのまま。
+// save(targetData) で保存する(今の水槽からは、もう外してある)
+async function sendAway(c, target, save) {
   target.addCreature(new Creature(c.toJSON()));
-  tank.removeCreature(c);
-  await saveTanks(current.keepSaved ? [target.toData()] : [tank.toData(), target.toData()]);
+  current.tank.removeCreature(c);
+  await save(target.toData());
   renderer.farewells.add(c, 'move');
   closeOverlay();
   await refreshTankButton();

@@ -1,4 +1,5 @@
 // 観察モードのボタン:もどる、この子のこと(標本・別の水槽へ)、図鑑に残す、エサ(4種)、消化させる、排泄させる。
+// ほかの人の水槽をのぞいているときは、もどる と「この子をもらいたい」だけ。
 // 今の食事の段階に合うボタンだけを出す。1周したあとは、エサのボタンが薄くなってゆっくり戻る。
 // 上の真ん中には、控えめな一言の欄(生き物:いま受けている影響・繁殖の準備・受けやすさ / 卵:「たまご」とようす)。
 import { el } from './dom.js';
@@ -8,7 +9,7 @@ import { lerp } from '../util/math.js';
 
 const REST_OPACITY = 0.25; // 休み始めのボタンの濃さ
 
-export function createObserveUi(root, { onBack, onFood, onDigest, onExcrete, onCare, onKeep }) {
+export function createObserveUi(root, { onBack, onFood, onDigest, onExcrete, onCare, onKeep, onAsk }) {
   const foodButtons = FOOD_KEYS.map((key) =>
     el('button', { class: 'meal-btn', type: 'button', onclick: () => onFood(key) }, [
       el('span', { class: 'food-dot', style: { background: FOODS[key].color } }),
@@ -22,12 +23,14 @@ export function createObserveUi(root, { onBack, onFood, onDigest, onExcrete, onC
   const back = el('button', { class: 'pill', type: 'button', text: 'もどる', onclick: () => onBack() });
   const care = el('button', { class: 'pill right', type: 'button', text: 'この子のこと', onclick: () => onCare() });
   const keep = el('button', { class: 'pill right second', type: 'button', text: '図鑑に残す', onclick: () => onKeep() });
+  const ask = el('button', { class: 'pill right', type: 'button', text: 'この子をもらいたい', hidden: true, onclick: () => onAsk() });
   const info = el('div', { class: 'observe-info', 'aria-live': 'polite' });
-  root.replaceChildren(back, care, keep, info, bar);
+  root.replaceChildren(back, care, keep, ask, info, bar);
 
   let shown = '';
   let opacity = -1;
   let infoKey = '';
+  let peek = null; // ほかの人の水槽をのぞいているとき { canAsk, asked }
 
   // 一言の欄を書き換える(変わったときだけ)。lines: [{ text, cls }]
   const setInfo = (lines) => {
@@ -45,12 +48,32 @@ export function createObserveUi(root, { onBack, onFood, onDigest, onExcrete, onC
     hide() {
       root.hidden = true;
     },
+    // のぞいているとき:眺めるだけ(エサ・この子のこと・図鑑に残すは出さない)。
+    // p: { canAsk: 「この子をもらいたい」を出せる, asked: もうおねがいしている } / null(自分の水槽)
+    setPeek(p) {
+      peek = p;
+      shown = '';
+      ask.hidden = !p?.canAsk || !!p.asked;
+    },
     // 生き物の今の段階に合わせて、ボタンを出し分ける(変わったときだけ書き換える)。
     // note: { now: いま受けている影響の名前, ready: 繁殖の準備ができている, sensitivity: 受けやすさの行 }
     update(creature, note = {}, now = Date.now()) {
       const stage = creature.meal.stage;
       const resting = stage === MEAL.resting;
       const key = resting ? 'resting' : stage;
+      if (peek) {
+        if (shown !== 'peek') {
+          shown = 'peek';
+          care.hidden = true;
+          keep.hidden = true;
+          bar.hidden = true;
+        }
+        const lines = [];
+        if (peek.asked) lines.push({ text: 'おねがいしています', cls: 'ready' });
+        if (note.sensitivity?.length) lines.push({ text: note.sensitivity.join(' / '), cls: 'sub' });
+        setInfo(lines);
+        return;
+      }
       if (key !== shown) {
         shown = key;
         care.hidden = false;
@@ -79,6 +102,7 @@ export function createObserveUi(root, { onBack, onFood, onDigest, onExcrete, onC
         shown = 'egg';
         care.hidden = true;
         keep.hidden = true;
+        ask.hidden = true;
         bar.hidden = true;
       }
       setInfo([

@@ -11,7 +11,7 @@ function picture(data, w, h) {
 }
 
 /**
- * creatures: [{ id, data(保存データ), newborn }]
+ * creatures: [{ id, data(保存データ), badge(「生まれたばかり」など。なければ null) }]
  * targets:   移せる水槽 [{ id, label }](同じ人の、空きがある水槽)
  * crowded:   5匹いる(「あとで決める」を出す)
  */
@@ -30,7 +30,7 @@ export function renderHomeChoice(root, { creatures, selectedId, targets, crowded
           sync();
         },
       },
-      [picture(c.data, 150, 100), c.newborn ? el('span', { class: 'badge', text: '生まれたばかり' }) : null],
+      [picture(c.data, 150, 100), c.badge ? el('span', { class: 'badge', text: c.badge }) : null],
     ),
   );
 

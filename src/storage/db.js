@@ -1,17 +1,19 @@
 // IndexedDB への保存。データはすべてこの端末の中だけに置く(サーバーには送らない)。
 //
 // ストア
-// - personas:  { id, name, createdAt, lastOpenedAt }
+// - personas:  { id, name, createdAt, lastOpenedAt, closedToRequests(おねがいを受け付けない。無ければ受け付ける) }
 // - aquaria:   水槽 { id, personaId, name, createdAt, version, seed, creatures: [...], things: {...}, savedAt, ... }(index: personaId)
 // - specimens: 標本 { id, personaId, name, note, madeAt, creature: {...}, ... }(index: personaId)
 // - moments:   図鑑(残した瞬間){ id, personaId, tankId, creatureId, name, note, takenAt, creature: {...}, look: {...} }(index: personaId)
+// - requests:  おねがい(ほかの人の水槽の子をもらいたい){ id, fromPersonaId, toPersonaId, tankId, creatureId, targetTankId,
+//              creature: {...}, createdAt, noticedAt, status: 'asked' | 'given', givenAt, arrivedTankId }(index: toPersonaId, fromPersonaId)
 // - tanks:     (フェーズ3まで)1人1つの水槽。DB_VERSION 2 で aquaria に写した。念のための控えとして消さずに残す
 //
 // 後のフェーズでストアを足すときは、DB_VERSION を上げて upgrade() に手順を追加する。
 import { makeId } from '../util/random.js';
 
 const DB_NAME = 'aquarium';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 let dbPromise = null;
 
@@ -39,6 +41,12 @@ function upgrade(db, oldVersion, tx) {
     // 図鑑(残した瞬間)。今までのストアには触れない
     const moments = db.createObjectStore('moments', { keyPath: 'id' });
     moments.createIndex('personaId', 'personaId');
+  }
+  if (oldVersion < 4) {
+    // おねがい。今までのストアには触れない
+    const requests = db.createObjectStore('requests', { keyPath: 'id' });
+    requests.createIndex('toPersonaId', 'toPersonaId');
+    requests.createIndex('fromPersonaId', 'fromPersonaId');
   }
 }
 
@@ -101,6 +109,15 @@ export async function markOpened(id) {
   if (!persona) return;
   persona.lastOpenedAt = Date.now();
   await run('personas', 'readwrite', (s) => s().put(persona));
+}
+
+// おねがいを受け付けるかどうか(on: 受け付けない)
+export async function setPersonaClosed(id, on) {
+  const persona = await getPersona(id);
+  if (!persona) return null;
+  const next = { ...persona, closedToRequests: !!on };
+  await run('personas', 'readwrite', (s) => s().put(next));
+  return next;
 }
 
 // ---- 水槽 ----
@@ -198,4 +215,78 @@ export async function updateMoment(id, { name, note }) {
 
 export function deleteMoment(id) {
   return run('moments', 'readwrite', (s) => s().delete(id));
+}
+
+// ---- おねがい ----
+
+const byAsked = (a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0);
+
+// 届いているおねがい(その人の水槽の子へ)
+export async function listRequestsTo(personaId) {
+  const all = await run('requests', 'readonly', (s) => s().index('toPersonaId').getAll(personaId));
+  return all.sort(byAsked);
+}
+
+// 出したおねがい
+export async function listRequestsFrom(personaId) {
+  const all = await run('requests', 'readonly', (s) => s().index('fromPersonaId').getAll(personaId));
+  return all.sort(byAsked);
+}
+
+export function getRequest(id) {
+  return run('requests', 'readonly', (s) => s().get(id));
+}
+
+// おねがいを出す。同じ子へのおねがいは1人1つまで(すでにあれば、それを返す)
+export async function addRequest({ fromPersonaId, toPersonaId, tankId, creatureId, targetTankId = null, creature }) {
+  const existing = (await listRequestsFrom(fromPersonaId)).find((r) => r.creatureId === creatureId && r.status === 'asked');
+  if (existing) return existing;
+  const request = {
+    id: makeId(),
+    fromPersonaId,
+    toPersonaId,
+    tankId,
+    creatureId,
+    targetTankId,
+    creature,
+    createdAt: Date.now(),
+    noticedAt: null,
+    status: 'asked',
+  };
+  await run('requests', 'readwrite', (s) => s().put(request));
+  return request;
+}
+
+export function deleteRequest(id) {
+  return run('requests', 'readwrite', (s) => s().delete(id));
+}
+
+// 持ち主に一度知らせた(もう勝手には出さない)
+export async function markRequestNoticed(id) {
+  const r = await getRequest(id);
+  if (!r || r.noticedAt) return;
+  await run('requests', 'readwrite', (s) => s().put({ ...r, noticedAt: Date.now() }));
+}
+
+// あげる:水槽(元の水槽と受け取る水槽)と、おねがいの「届いた」への書きかえを、まとめて保存する
+export function giveCreature(tankDatas, request, arrivedTankId) {
+  const now = Date.now();
+  return run(['aquaria', 'requests'], 'readwrite', (s) => {
+    for (const data of tankDatas) s('aquaria').put({ ...data, savedAt: now });
+    s('requests').put({ ...request, status: 'given', givenAt: now, arrivedTankId });
+  });
+}
+
+// その子がもう元の水槽にいない(標本になった・ほかの水槽に移った)おねがいを消す
+export async function pruneRequests() {
+  const all = await run('requests', 'readonly', (s) => s().getAll());
+  const asked = all.filter((r) => r.status === 'asked');
+  if (!asked.length) return 0;
+  const tanks = new Map((await listAllTanks()).map((t) => [t.id, t]));
+  const gone = asked.filter((r) => !(tanks.get(r.tankId)?.creatures ?? []).some((c) => c.id === r.creatureId));
+  if (!gone.length) return 0;
+  await run('requests', 'readwrite', (s) => {
+    for (const r of gone) s().delete(r.id);
+  });
+  return gone.length;
 }
