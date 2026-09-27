@@ -74,12 +74,13 @@ export const GROW = {
   BABY_PACE: 0.7, // 生まれたばかりの動きの速さ(大人になるにつれて 1 へ)
 };
 
-// 環境で変わる遺伝子(10項目)の変異:赤ちゃんは両親の遺伝子を混ぜたうえで、必ず COUNT の範囲の項目数だけ大きくずれる
+// 環境で変わる遺伝子と模様の変異:赤ちゃんは両親の遺伝子を混ぜたうえで、必ず COUNT の範囲の項目数だけ大きくずれる。
+// pattern(模様の種類)が選ばれたときは、ほかの種類になる
 export const MUTATION = {
   COUNT: [1, 2],
   MIX_JITTER: 0.03, // 混ぜるときの、ふだんの小さなゆらぎ(±)
   SHIFT: [0.28, 0.45], // 大きくずれるときの量(この範囲で、増えるか減るか)
-  SHIFT_KEYS: ['bodyLength', 'spikeLength', 'edgeRuffle', 'hue', 'hue2', 'pattern', 'translucency', 'glow'], // 見た目でわかる遺伝子
+  SHIFT_KEYS: ['bodyLength', 'spikeLength', 'edgeRuffle', 'hue', 'hue2', 'pattern', 'translucency', 'glow'], // 見た目でわかるもの
 };
 
 // 特徴遺伝子(生まれつき。環境やエサでは変わらない。変わるのは受け継ぐときと突然変異のときだけ)。定義は genes.js の TRAIT_DEFS

@@ -1,7 +1,7 @@
 // 観察モードのボタン:もどる、この子のこと(標本・別の水槽へ)、図鑑に残す、エサ(4種)、消化させる、排泄させる。
 // ほかの人の水槽をのぞいているときは、もどる と「この子をもらいたい」だけ。
 // 今の食事の段階に合うボタンだけを出す。1周したあとは、エサのボタンが薄くなってゆっくり戻る。
-// 上の真ん中には、控えめな一言の欄(生き物:いま受けている影響・繁殖の準備・受けやすさ / 卵:「たまご」とようす)。
+// 上の真ん中には、控えめな一言の欄(生き物:いま受けている影響・模様の移り変わり・繁殖の準備・受けやすさ / 卵:「たまご」とようす)。
 import { el } from './dom.js';
 import { FOODS, FOOD_KEYS } from '../creature/genes.js';
 import { MEAL } from '../creature/creature.js';
@@ -56,7 +56,7 @@ export function createObserveUi(root, { onBack, onFood, onDigest, onExcrete, onC
       ask.hidden = !p?.canAsk || !!p.asked;
     },
     // 生き物の今の段階に合わせて、ボタンを出し分ける(変わったときだけ書き換える)。
-    // note: { now: いま受けている影響の名前, ready: 繁殖の準備ができている, sensitivity: 受けやすさの行 }
+    // note: { now: いま受けている影響の名前, pattern: 移り変わっている先の模様の名前, ready: 繁殖の準備ができている, sensitivity: 受けやすさの行 }
     update(creature, note = {}, now = Date.now()) {
       const stage = creature.meal.stage;
       const resting = stage === MEAL.resting;
@@ -70,6 +70,7 @@ export function createObserveUi(root, { onBack, onFood, onDigest, onExcrete, onC
         }
         const lines = [];
         if (peek.asked) lines.push({ text: 'おねがいしています', cls: 'ready' });
+        if (note.pattern) lines.push({ text: `模様が${note.pattern}へ移り変わっている`, cls: 'sub' });
         if (note.sensitivity?.length) lines.push({ text: note.sensitivity.join(' / '), cls: 'sub' });
         setInfo(lines);
         return;
@@ -92,6 +93,7 @@ export function createObserveUi(root, { onBack, onFood, onDigest, onExcrete, onC
       }
       const lines = [];
       if (note.now?.length) lines.push({ text: `いま:${note.now.join('・')}` });
+      if (note.pattern) lines.push({ text: `模様が${note.pattern}へ移り変わっている`, cls: 'sub' });
       if (note.ready) lines.push({ text: '繁殖の準備ができている', cls: 'ready' });
       if (note.sensitivity?.length) lines.push({ text: note.sensitivity.join(' / '), cls: 'sub' });
       setInfo(lines);

@@ -4,6 +4,7 @@ import { GENE_DEFS } from '../creature/genes.js';
 import { DEPTH_SPAN } from '../creature/body.js';
 import { clamp, wrap01 } from '../util/math.js';
 import { sensitivityScale } from '../creature/sensitivity.js';
+import { PATTERN_TYPES } from '../creature/pattern.js';
 import {
   CURRENT_EFFECT,
   CURRENT_NAMES,
@@ -118,7 +119,7 @@ export function nearbyPlants(creature, plants) {
   return near;
 }
 
-export const EFFECT_MODES = ['up', 'down', 'toward'];
+export const EFFECT_MODES = ['up', 'down', 'toward', 'become'];
 
 // 効果に中身があるか
 export function hasEffect(effect) {
@@ -180,12 +181,23 @@ export function targetFor(creature, key, target) {
 }
 
 // 記録した当てはまり具合から、まとめて変える量({ 遺伝子: 変化量 })を求める。genes にはまだ反映しない。
-// どの効果も、この生き物の目標の値を通り過ぎない
+// どの効果も、この生き物の目標の値を通り過ぎない。
+// 模様は drift.pattern = { kind: 目標の種類, amount: 濃くなる量 }(当てはまりのいちばん強い種類だけ)
 export function exposureDrift(creature, exposure) {
-  const { INTERVAL, STEP } = ENV_CHANGE;
+  const { INTERVAL, STEP, PATTERN_STEP } = ENV_CHANGE;
   const work = { ...creature.genes };
   const drift = {};
+  let patternAmount = 0;
   for (const e of exposure.values()) {
+    if (e.mode === 'become') {
+      if (e.key !== 'pattern' || !PATTERN_TYPES.includes(e.target) || !(e.amount > 0) || e.amount <= patternAmount) continue;
+      patternAmount = e.amount;
+      const room = 1 - (creature.pattern?.[e.target] ?? 0);
+      const amount = Math.min(room, (PATTERN_STEP * e.amount) / INTERVAL);
+      if (amount > 0) drift.pattern = { kind: e.target, amount };
+      else delete drift.pattern;
+      continue;
+    }
     if (typeof work[e.key] !== 'number' || !(e.amount > 0)) continue;
     const k = (STEP * e.amount) / INTERVAL;
     let d = targetFor(creature, e.key, e.target) - work[e.key];

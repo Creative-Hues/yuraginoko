@@ -288,7 +288,7 @@ export class Tank {
     c.finishShift(); // 前の変化が残っていれば、先に変えきる
     const drift = exposureDrift(c, c.envExposure);
     c.envExposure.clear();
-    if (!Object.values(drift).some((v) => v !== 0)) return;
+    if (!Object.values(drift).some((v) => v !== 0 && v != null)) return;
     this.dirty = true;
     c.shiftGenes(drift, ENV_CHANGE.SHIFT_SECONDS);
   }

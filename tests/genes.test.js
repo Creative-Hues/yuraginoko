@@ -7,14 +7,18 @@ import {
   applyTouchDrift,
   expressGenes,
   normalizeGenes,
-  patternMix,
   randomGenes,
 } from '../src/creature/genes.js';
 import { makeRng } from '../src/util/random.js';
+import { Creature } from '../src/creature/creature.js';
+import { PATTERN_TYPES, mainPattern, movePattern, patternFromValue, patternLayers, solidPattern } from '../src/creature/pattern.js';
+
+const layerTypes = (p) => patternLayers(p).map((l) => l.type);
 
 describe('遺伝子', () => {
-  it('環境で変わる遺伝子は10項目、特徴遺伝子は5項目。すべて 0〜1', () => {
-    expect(GENE_KEYS).toHaveLength(10);
+  it('環境で変わる遺伝子は9項目(模様は種類として別に持つ)、特徴遺伝子は5項目。すべて 0〜1', () => {
+    expect(GENE_KEYS).toHaveLength(9);
+    expect(GENE_KEYS).not.toContain('pattern');
     expect(TRAIT_KEYS).toHaveLength(5);
     expect(GENE_KEYS.filter((k) => TRAIT_KEYS.includes(k))).toEqual([]);
     const g = randomGenes(makeRng(42));
@@ -77,15 +81,44 @@ describe('遺伝子', () => {
     expect(applyTouchDrift(g, 'stroke')).toBe(false);
   });
 
-  it('模様は4種類に分かれ、境目では隣と混ざる', () => {
-    expect(patternMix(0.1).main).toBe('spots');
-    expect(patternMix(0.4).main).toBe('stripes');
-    expect(patternMix(0.6).main).toBe('net');
-    expect(patternMix(0.9).main).toBe('gradient');
-    expect(patternMix(0.125).amount).toBe(0);
-    const edge = patternMix(0.249);
-    expect(edge.other).toBe('stripes');
-    expect(edge.amount).toBeGreaterThan(0);
+  it('古いデータの模様の数字は、そのとき見えていた模様(境目では隣と少し混ざる)として読む', () => {
+    expect(mainPattern(patternFromValue(0.1))).toBe('spots');
+    expect(mainPattern(patternFromValue(0.4))).toBe('stripes');
+    expect(mainPattern(patternFromValue(0.6))).toBe('net');
+    expect(mainPattern(patternFromValue(0.9))).toBe('gradient');
+    expect(patternFromValue(0.125)).toEqual({ spots: 1, stripes: 0, net: 0, gradient: 0 });
+    const edge = patternFromValue(0.249);
+    expect(edge.stripes).toBeGreaterThan(0);
+    expect(edge.spots + edge.stripes).toBeCloseTo(1, 9);
+    // 遺伝子の中からは外れ、生き物の模様として読まれる
+    expect(normalizeGenes({ pattern: 0.6 }, makeRng(1)).pattern).toBeUndefined();
+    const c = new Creature({ id: 'x', seed: 3, genes: { pattern: 0.6 } });
+    expect(mainPattern(c.pattern)).toBe('net');
+    expect(c.toJSON().pattern).toEqual({ net: 1 });
+    expect(c.toJSON().genes.pattern).toBeUndefined();
+  });
+
+  it('模様は種類として移り変わる。目標の模様が濃くなり、ほかは同じ割合で薄れる(途中でほかの模様を通らない)', () => {
+    const p = solidPattern('spots');
+    for (let i = 0; i < 50; i++) {
+      movePattern(p, 'net', 0.03);
+      expect(p.stripes).toBe(0);
+      expect(p.gradient).toBe(0);
+      expect(p.spots + p.net).toBeCloseTo(1, 9);
+    }
+    expect(p).toEqual(solidPattern('net'));
+    // 混ざっているところから別の模様へ:今ある2つが同じ割合で薄れる
+    const q = { spots: 0.6, stripes: 0, net: 0.4, gradient: 0 };
+    movePattern(q, 'gradient', 0.5);
+    expect(q.gradient).toBeCloseTo(0.5, 9);
+    expect(q.spots / q.net).toBeCloseTo(1.5, 9);
+    // 小分けにしても、まとめても同じ
+    const a = { spots: 0.7, stripes: 0.3, net: 0, gradient: 0 };
+    const b = { ...a };
+    movePattern(a, 'net', 0.2);
+    for (let i = 0; i < 4; i++) movePattern(b, 'net', 0.05);
+    for (const k of PATTERN_TYPES) expect(b[k]).toBeCloseTo(a[k], 9);
+    expect(layerTypes({ spots: 0.995, net: 0.005, stripes: 0, gradient: 0 })).toEqual(['spots']);
   });
 });
 

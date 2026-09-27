@@ -134,9 +134,12 @@ export function renderScenery(ctx, geo, seed, env) {
     const x = rng() * W;
     ctx.fillStyle = rng() < 0.55 ? soil.grains[0] : soil.grains[1];
     ctx.beginPath();
-    ctx.arc(x, y, lerp(0.6, 2, k) * (0.6 + rng() * 0.6), 0, TAU);
+    ctx.arc(x, y, lerp(0.6, 2, k) * (0.6 + rng() * 0.6) * (soil.grainSize ?? 1), 0, TAU);
     ctx.fill();
   }
+  // さざなみ砂:細かい波の筋 / なめらか砂:きめの細かい粒
+  if (soil.waves) drawWaveLines(ctx, geo, extra, soil.waves);
+  if (soil.fine) drawFineGrains(ctx, geo, extra, soil.fine);
 
   // 小石(影は1色だけ)。まるい苔や排泄の粒と見分けやすいように、灰色・茶色の地味な色で、控えめに描く
   const colors = ['#5b5560', '#6a5d52', '#4f4a55', '#71685c', '#5a5048', '#646068'];
@@ -183,6 +186,52 @@ export function renderScenery(ctx, geo, seed, env) {
   if (bright > 0) {
     ctx.fillStyle = `hsla(${light.ray}, 90%, 80%, ${bright * 0.14})`;
     ctx.fillRect(0, 0, W, H);
+  }
+}
+
+// さざなみ砂:底に並ぶ、ゆるやかな波の筋(奥ほど細く、手前ほど太く)。明るい筋のすぐ下に、影の筋。
+// ほかの土(泥のひび・小石)と情報量がそろうように、本数は控えめで、色は砂に近い
+function drawWaveLines(ctx, geo, rng, [bright, shadow]) {
+  const { W, H, floorBack } = geo;
+  const rows = 11;
+  ctx.lineCap = 'round';
+  for (let i = 0; i < rows; i++) {
+    const k = (i + 0.5) / rows;
+    const y0 = lerp(floorBack + 6, H - 3, k);
+    const wave = lerp(28, 64, k); // 波の間隔(横)
+    const amp = lerp(1, 2.6, k);
+    const width = lerp(1.4, 3, k);
+    const phase = rng() * TAU;
+    let x = -rng() * 40;
+    while (x < W) {
+      const len = lerp(50, 150, rng()) * lerp(0.7, 1.3, k);
+      const end = Math.min(W + 10, x + len);
+      for (const [color, dy, lw] of [
+        [shadow, width * 0.9, width],
+        [bright, 0, width],
+      ]) {
+        ctx.beginPath();
+        for (let px = x; px <= end; px += 3) {
+          const py = y0 + dy + Math.sin((px / wave) * TAU + phase) * amp;
+          if (px === x) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        }
+        ctx.strokeStyle = color;
+        ctx.lineWidth = lw;
+        ctx.stroke();
+      }
+      x = end + lerp(40, 110, rng());
+    }
+  }
+}
+
+// なめらか砂:きめの細かい、淡い粒
+function drawFineGrains(ctx, geo, rng, [light, dark]) {
+  const { W, H, floorBack } = geo;
+  for (let i = 0; i < 700; i++) {
+    const k = rng();
+    ctx.fillStyle = rng() < 0.6 ? light : dark;
+    ctx.fillRect(rng() * W, lerp(floorBack + 4, H, k), lerp(0.6, 1.3, k), lerp(0.6, 1.3, k));
   }
 }
 

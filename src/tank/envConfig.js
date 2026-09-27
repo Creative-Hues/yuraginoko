@@ -6,6 +6,7 @@
 // - down:   { 遺伝子: 目標 } … 目標より大きければ、目標まで減らす
 // - toward: { 遺伝子: 目標 } … どちらからでも目標へ寄せる(色相は近いほうの回り方で)
 // 目標は生き物ごとに ±ENV_CHANGE.TARGET_JITTER だけずれる(同じ環境でも、みんな同じ姿にならないように)
+// - become: { pattern: 模様の種類 } … 模様をその種類へ移す(途中でほかの模様を通らない。src/creature/pattern.js)
 import { FOODS } from '../creature/genes.js';
 
 export const ENV_TICK = 1; // 植物が育つのと、環境に当てはまっているかを調べる間隔(秒)
@@ -17,6 +18,7 @@ export const ENV_CHANGE = {
   STEP: 0.015, // INTERVAL の間ずっと当てはまっていたときの、1回の変化量
   TARGET_JITTER: 0.08, // 目標の値の、生き物ごとのずれ(±)
   SHIFT_SECONDS: 1.5, // 変わるときに、見た目がこれだけかけて(静かに)変わる(秒)
+  PATTERN_STEP: 0.025, // 模様:INTERVAL の間ずっと当てはまっていたときに、目標の模様が濃くなる量(約40分で移りきる)
 };
 
 // 生き物ごとの「環境の受けやすさ」。項目ごとに3段階で、当てはまっている強さに倍率をかける。
@@ -83,7 +85,9 @@ export const PLANTABLE_KEYS = PLANT_KEYS.filter((k) => PLANTS[k].plantable);
 export const SPROUT_BY_FOOD = Object.fromEntries(PLANT_KEYS.filter((k) => PLANTS[k].fromFood).map((k) => [PLANTS[k].fromFood, k]));
 
 // ---- 土と栄養 ----
-// 土の種類。floor: 底の3段の色、grains: 砂粒の色 [明るい粒, 暗い粒]、ripple: 風紋の色
+// 土の種類。floor: 底の3段の色、grains: 砂粒の色 [明るい粒, 暗い粒]、ripple: 風紋の色、
+// grainSize: 砂粒の大きさの倍率(なければ 1)、waves: ゆるやかな波の筋の色(さざなみ砂)、fine: きめの細かい粒の色(なめらか砂)
+// 模様を寄せる土:小石 → 斑点、さざなみ砂 → 縞、泥 → 網目、なめらか砂 → グラデーション
 export const SOILS = {
   sand: {
     label: '砂',
@@ -92,19 +96,36 @@ export const SOILS = {
     ripple: 'rgba(150, 80, 190, 0.55)',
     effect: {},
   },
-  mud: {
-    label: '泥',
-    floor: ['#3d2238', '#331c30', '#271526'],
-    grains: ['rgba(140, 100, 130, 0.35)', 'rgba(10, 3, 12, 0.55)'],
-    ripple: 'rgba(20, 6, 22, 0.5)',
-    effect: { toward: { pattern: 0.625 } }, // 模様を網目へ
-  },
   pebble: {
     label: '小石',
     floor: ['#4a2a6a', '#3c2258', '#2e1a46'],
     grains: ['rgba(190, 160, 230, 0.5)', 'rgba(15, 4, 30, 0.6)'],
     ripple: 'rgba(130, 90, 180, 0.4)',
-    effect: { toward: { pattern: 0.125 } }, // 模様を斑点へ
+    effect: { become: { pattern: 'spots' } },
+  },
+  wave: {
+    label: 'さざなみ砂',
+    floor: ['#62307e', '#52286c', '#3f1f58'],
+    grains: ['rgba(215, 170, 240, 0.45)', 'rgba(15, 4, 30, 0.5)'],
+    ripple: 'rgba(170, 110, 215, 0.35)',
+    waves: ['rgba(150, 90, 190, 0.5)', 'rgba(40, 14, 62, 0.28)'], // 波の筋 [明るい筋, 影の筋]
+    effect: { become: { pattern: 'stripes' } },
+  },
+  mud: {
+    label: '泥',
+    floor: ['#3d2238', '#331c30', '#271526'],
+    grains: ['rgba(140, 100, 130, 0.35)', 'rgba(10, 3, 12, 0.55)'],
+    ripple: 'rgba(20, 6, 22, 0.5)',
+    effect: { become: { pattern: 'net' } },
+  },
+  smooth: {
+    label: 'なめらか砂',
+    floor: ['#8a6aa6', '#7a5c96', '#684d82'],
+    grains: ['rgba(245, 232, 255, 0.4)', 'rgba(70, 40, 95, 0.3)'],
+    ripple: 'rgba(250, 238, 255, 0.14)',
+    grainSize: 0.45,
+    fine: ['rgba(250, 242, 255, 0.35)', 'rgba(90, 60, 115, 0.25)'], // きめの細かい粒 [明るい粒, 暗い粒]
+    effect: { become: { pattern: 'gradient' } },
   },
   glowSand: {
     label: '光る砂',
@@ -166,20 +187,19 @@ export const CURRENT_LOOK = {
 // ---- 影響の言葉 ----
 // 「影響の一覧」と、編集・観察中の一言は、ここと上の effect の定義から作る(src/tank/influence.js)。
 // 植物や土を増やしても、effect に使った「遺伝子と向き」の言葉がここにあれば、一覧に自動で並ぶ。
-// effect に使えるのは、環境で変わる遺伝子(genes.js の GENE_DEFS)だけ。特徴遺伝子(TRAIT_DEFS)は環境では変わらない
+// effect に使えるのは、環境で変わる遺伝子(genes.js の GENE_DEFS)と模様(pattern)だけ。特徴遺伝子(TRAIT_DEFS)は環境では変わらない
 export const EFFECT_WORDS = {
   bodyLength: { up: '体がずんぐりする', down: '体が細長くなる' },
   spikeLength: { up: '突起が長くなる', down: '突起が短くなる' },
   edgeRuffle: { up: '縁が波打つ', down: '縁がまっすぐになる' },
   hue: { toward: '体の色がその色に寄る' },
   hue2: { toward: '2つ目の色がその色に寄る' },
-  pattern: { toward: '{pattern}の模様に寄る' }, // {pattern} は目標の値の模様の名前
+  pattern: { become: '{pattern}の模様に寄る' }, // {pattern} は目標の模様の名前
   translucency: { up: '透けやすくなる', down: '透けにくくなる' },
   glow: { up: '光り方が強くなる', down: '光り方が弱くなる' },
   crawlSpeed: { up: '這うのが速くなる', down: '這うのがゆっくりになる' },
   floatiness: { up: '浮きやすくなる', down: '浮きにくくなる' },
 };
-export const PATTERN_NAMES = { spots: '斑点', stripes: 'しま', net: '網目', gradient: 'グラデーション' };
 export const NO_EFFECT_TEXT = '変化なし';
 // 観察中の「いま受けている影響」に明るさ・水流を出すのは、効き方がこれより大きいとき
 export const INFLUENCE_MIN = 0.1;

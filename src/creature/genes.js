@@ -22,7 +22,6 @@ export const GENE_DEFS = [
   // 色と模様
   { key: 'hue', group: 'color', label: '基本の色', low: '色相 0°', high: '色相 360°', wobble: 0.01, period: 41, wrap: true },
   { key: 'hue2', group: 'color', label: '2つ目の色', low: '色相 0°', high: '色相 360°', wobble: 0.012, period: 31, wrap: true },
-  { key: 'pattern', group: 'color', label: '模様の種類', low: '斑点', high: 'グラデーション', wobble: 0.012, period: 43 },
   { key: 'translucency', group: 'color', label: '透明度', low: '不透明', high: '透ける', wobble: 0.015, period: 17 },
   { key: 'glow', group: 'color', label: '光り方', low: '光らない', high: 'ぼんやり発光', wobble: 0.02, period: 13 },
   // 動き
@@ -44,9 +43,6 @@ export const TRAIT_DEFS = [
   { key: 'blink', label: '点滅する光模様', short: '点滅する光', words: ['なし', '控えめ', 'はっきり'], blink: true },
 ];
 export const TRAIT_KEYS = TRAIT_DEFS.map((d) => d.key);
-
-// pattern の値を4つに区切って模様を決める(0〜0.25 斑点、…、0.75〜1 グラデーション)
-export const PATTERN_TYPES = ['spots', 'stripes', 'net', 'gradient'];
 
 // 触れ合うたびに、遺伝子の基本値がほんの少し動く(1回あたりの量)
 export const TOUCH_DRIFT = {
@@ -88,9 +84,11 @@ export function randomGenes(rng) {
 // 保存されていた遺伝子を読み込む。
 // 後から項目が増えたときは、足りない項目だけ乱数で補う(古いデータもそのまま使える)。
 // 特徴遺伝子に移した項目(古いデータの spikeCount・wriggliness)は、ここでは外す(traits.js が引き継ぐ)。
+// 模様(古いデータの pattern)も外す(種類として pattern.js が引き継ぐ)。
 export function normalizeGenes(saved, rng) {
   const genes = { ...(saved ?? {}) };
   for (const k of TRAIT_KEYS) delete genes[k];
+  delete genes.pattern;
   for (const def of GENE_DEFS) {
     const v = genes[def.key];
     genes[def.key] = typeof v === 'number' && Number.isFinite(v) ? fit(def, v) : rng();
@@ -139,24 +137,6 @@ export function foodDrift(genes, foodKey) {
   }
   if (food.glow) drift.glow = Math.min(DIGEST_STEP, 1 - genes.glow);
   return drift;
-}
-
-// 模様の値から、主な模様と、境目付近で混ざりかけている隣の模様を求める
-export function patternMix(value) {
-  const scaled = clamp(value) * PATTERN_TYPES.length;
-  const index = Math.min(PATTERN_TYPES.length - 1, Math.floor(scaled));
-  const frac = scaled - index;
-  const edge = 0.12;
-  let other = index;
-  let amount = 0;
-  if (frac > 1 - edge && index < PATTERN_TYPES.length - 1) {
-    other = index + 1;
-    amount = ((frac - (1 - edge)) / edge) * 0.5;
-  } else if (frac < edge && index > 0) {
-    other = index - 1;
-    amount = ((edge - frac) / edge) * 0.5;
-  }
-  return { main: PATTERN_TYPES[index], other: PATTERN_TYPES[other], amount };
 }
 
 // 2つの遺伝子を混ぜる(項目ごとにどちらかの親の値 ± mutation)。交配の変異は breeding.js で足す

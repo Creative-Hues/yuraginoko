@@ -4,7 +4,7 @@
 // 体は、画面に写した節の並び pts(しっぽ → 頭)に沿って描く。
 // 節が曲がって手前や奥を向くと、そのぶん体が縮んで見える(Uターンの立体感)。
 // 体の形は「節ごとの楕円をつなげた形」で作るので、曲がっても重なっても輪郭が崩れない。
-import { patternMix } from './genes.js';
+import { patternLayers } from './pattern.js';
 import { drawDigestEffect } from './digestEffects.js';
 import { MEAL } from './creature.js';
 import { BREED, TRAITS } from './lifeConfig.js';
@@ -383,14 +383,12 @@ export function drawCreature(ctx, scratch, c, pts, L, t, pixelScale = 1, detail 
   ctx.fillStyle = `hsla(${H1}, 100%, 55%, ${bodyA})`;
   ctx.fill(bodyPath);
 
-  // 模様(体の形で切り抜く。境目の値では2つの模様が混ざりかける)
-  const mix = patternMix(g.pattern);
+  // 模様(体の形で切り抜く。移り変わっている途中は、今の模様が薄れ、次の模様が浮かんでくる)
   const patA = lerp(1, 0.6, g.translucency) * (1 - 0.5 * clear);
   const patColor = `hsl(${H2}, 100%, 60%)`;
   ctx.save();
   ctx.clip(bodyPath);
-  drawPattern(ctx, mix.main, spine, c, Ls, bodyH * sAvg, patColor, patA * (1 - mix.amount));
-  if (mix.amount > 0) drawPattern(ctx, mix.other, spine, c, Ls, bodyH * sAvg, patColor, patA * mix.amount);
+  for (const layer of patternLayers(c.pattern)) drawPattern(ctx, layer.type, spine, c, Ls, bodyH * sAvg, patColor, patA * layer.amount);
   ctx.restore();
 
   // ハイライト(1本だけの明るい線)

@@ -26,14 +26,14 @@ function release() {
   scratch = null;
 }
 
-// data: { seed, genes, traits, growth, look }(look は図鑑に残した瞬間の、揺らぎを含めた見た目。生き物の保存データや、親・標本の写し。特徴遺伝子の無い古いデータは genes と seed から)
+// data: { seed, genes, pattern, traits, growth, look }(look は図鑑に残した瞬間の、揺らぎを含めた見た目。生き物の保存データや、親・標本の写し。特徴遺伝子の無い古いデータは genes と seed から)
 // w, h: 画像の大きさ(CSS px)。描けないときは null
 export function portrait(data, w = 240, h = 160) {
   if (!data?.genes) return null;
-  const key = JSON.stringify([w, h, data.seed, data.genes, data.traits ?? null, data.growth ?? 1, data.look ?? null]);
+  const key = JSON.stringify([w, h, data.seed, data.genes, data.pattern ?? null, data.traits ?? null, data.growth ?? 1, data.look ?? null]);
   if (cache.has(key)) return cache.get(key);
 
-  const c = new Creature({ id: 'portrait', seed: Number(data.seed) >>> 0, genes: data.genes, traits: data.traits, growth: data.growth ?? 1, heading: 0 });
+  const c = new Creature({ id: 'portrait', seed: Number(data.seed) >>> 0, genes: data.genes, pattern: data.pattern, traits: data.traits, growth: data.growth ?? 1, heading: 0 });
   // 揺らぎなしの、その瞬間の姿。図鑑の瞬間は、残したときの揺らぎを含めた見た目
   c.expressed = data.look && typeof data.look === 'object' ? { ...c.genes, ...data.look } : { ...c.genes };
   c.phase = 0.35;

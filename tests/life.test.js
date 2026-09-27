@@ -7,6 +7,7 @@ import { randomGenes } from '../src/creature/genes.js';
 import { BREED, EGG, GROW, MATE, MUTATION, TANK_CAPACITY } from '../src/creature/lifeConfig.js';
 import { Creature } from '../src/creature/creature.js';
 import { makeRng } from '../src/util/random.js';
+import { solidPattern } from '../src/creature/pattern.js';
 import { Tank } from '../src/tank/tank.js';
 import { pairKey } from '../src/tank/social.js';
 import {
@@ -37,15 +38,29 @@ function run(tank, seconds, until = () => false, dt = 1 / 30) {
 }
 
 describe('赤ちゃんの遺伝子', () => {
-  it('環境で変わる遺伝子は、必ず1〜2項目が大きくずれる。特徴遺伝子の突然変異は多くても1つ', () => {
+  it('環境で変わる遺伝子と模様は、必ず1〜2項目が大きくずれる。特徴遺伝子の突然変異は多くても1つ', () => {
+    let patternMutations = 0;
     for (let s = 1; s < 300; s++) {
       const rng = makeRng(s);
-      const a = { genes: randomGenes(rng), traits: randomTraits(rng) };
-      const b = { genes: randomGenes(rng), traits: randomTraits(rng) };
+      const a = { genes: randomGenes(rng), pattern: solidPattern('spots'), traits: randomTraits(rng) };
+      const b = { genes: randomGenes(rng), pattern: { net: 0.8, stripes: 0.2 }, traits: randomTraits(rng) };
       const child = makeChild(a, b, rng);
       const genes = child.mutations.filter((m) => m.kind === 'gene');
-      expect(genes.length).toBeGreaterThanOrEqual(MUTATION.COUNT[0]);
-      expect(genes.length).toBeLessThanOrEqual(MUTATION.COUNT[1]);
+      const pattern = child.mutations.filter((m) => m.kind === 'pattern');
+      expect(genes.length + pattern.length).toBeGreaterThanOrEqual(MUTATION.COUNT[0]);
+      expect(genes.length + pattern.length).toBeLessThanOrEqual(MUTATION.COUNT[1]);
+      // 模様は1種類だけ。変異がなければ両親どちらかの今の模様、変異があれば、受け継いだものとちがう種類
+      const kinds = Object.keys(child.pattern);
+      expect(kinds).toHaveLength(1);
+      expect(child.pattern[kinds[0]]).toBe(1);
+      if (pattern.length) {
+        patternMutations++;
+        expect(['spots', 'net']).toContain(pattern[0].from);
+        expect(pattern[0].to).not.toBe(pattern[0].from);
+        expect(kinds[0]).toBe(pattern[0].to);
+      } else {
+        expect(['spots', 'net']).toContain(kinds[0]);
+      }
       for (const m of genes) {
         expect(MUTATION.SHIFT_KEYS).toContain(m.key);
         expect(Math.abs(m.delta)).toBeGreaterThanOrEqual(MUTATION.SHIFT[0]);
@@ -53,9 +68,10 @@ describe('赤ちゃんの遺伝子', () => {
         expect(child.genes[m.key]).toBeLessThanOrEqual(1);
       }
       expect(child.mutations.filter((m) => m.kind === 'trait').length).toBeLessThanOrEqual(1);
-      expect(child.mutations.every((m) => m.kind === 'gene' || m.kind === 'trait')).toBe(true);
+      expect(child.mutations.every((m) => ['gene', 'pattern', 'trait'].includes(m.kind))).toBe(true);
       expect(child.quirks).toBeUndefined();
     }
+    expect(patternMutations).toBeGreaterThan(0);
   });
 });
 

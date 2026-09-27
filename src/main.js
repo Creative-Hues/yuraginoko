@@ -50,7 +50,7 @@ import { createObserveUi } from './ui/observeUi.js';
 import { createEditUi } from './ui/editUi.js';
 import { showError, watchErrors } from './ui/errorBox.js';
 import { eggMood } from './tank/eggs.js';
-import { nowInfluences } from './tank/influence.js';
+import { nowInfluences, patternChange } from './tank/influence.js';
 import { sensitivityLines } from './creature/sensitivity.js';
 
 watchErrors();
@@ -603,6 +603,7 @@ function syncUi() {
     observing.refreshMeal();
     observeUi.update(observing, {
       now: nowInfluences(observing, tank.env, tank.plants.list),
+      pattern: patternChange(observing, tank.env, tank.plants.list),
       ready: tank.readyToBreed(observing),
       sensitivity: sensitivityLines(observing.sensitivity),
     });

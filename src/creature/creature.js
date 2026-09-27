@@ -17,6 +17,7 @@ import { clamp, lerp, smoothstep } from '../util/math.js';
 import { normalizeTraits, randomTraits } from './traits.js';
 import { normalizeSensitivity, randomSensitivity } from './sensitivity.js';
 import { GROW } from './lifeConfig.js';
+import { compactPattern, movePattern, normalizePattern, solidPattern, PATTERN_TYPES } from './pattern.js';
 
 // 撫でたと数えるのに必要な、生き物の上をなぞった距離(px)
 const STROKE_MIN_DIST = 24;
@@ -52,11 +53,19 @@ function loadMeal(saved) {
   return { stage, food };
 }
 
+// 模様の変化 drift.pattern({ kind, amount })を k 倍して、p に反映する
+function shiftPattern(p, drift, k) {
+  const d = drift?.pattern;
+  if (d && k > 0) movePattern(p, d.kind, d.amount * k);
+}
+
 export class Creature {
   constructor(data) {
     this.id = data.id;
     this.seed = data.seed;
     this.genes = normalizeGenes(data.genes, makeRng(this.seed));
+    // 模様(種類ごとの濃さ)。古いデータは genes.pattern の数字から、そのとき見えていた模様にする
+    this.pattern = normalizePattern(data.pattern, data.genes?.pattern, makeRng((this.seed ^ 0x9a77) >>> 0));
     // x, z は頭の位置。古い保存データ(dir で左右だけ持っていた)も読めるようにする
     this.x = clamp(data.x ?? 0.5, 0.05, 0.95);
     this.z = clamp(data.z ?? 0.5);
@@ -96,7 +105,7 @@ export class Creature {
     this.meet = null; // 触れ合っている最中 { partner, t, seconds }
     this.breed = null; // 繁殖で寄り添っている最中 { partner, t, seconds }(social.js が管理)
     this.disturbed = false; // 弾かれた・エサに向かった・排泄した(繁殖を途中でやめる印。social.js が見て消す)
-    this.shift = null; // 環境で変わっている途中 { drift, progress, seconds }
+    this.shift = null; // 環境で変わっている途中 { drift, progress, seconds }(drift.pattern は { kind, amount })
     this.screen = null; // 描画時に画面上の体の形が入る(当たり判定用)
     this.canvas = null; // 描画用の下書きキャンバス
     this.scratch = null;
@@ -109,6 +118,7 @@ export class Creature {
       id: makeId(),
       seed,
       genes: randomGenes(makeRng(seed)),
+      pattern: solidPattern(PATTERN_TYPES[Math.floor(Math.random() * PATTERN_TYPES.length)]),
       sensitivity: randomSensitivity(Math.random),
       traits: randomTraits(Math.random),
       x: opts.x ?? 0.3 + Math.random() * 0.4,
@@ -118,11 +128,12 @@ export class Creature {
   }
 
   // 交配で生まれた赤ちゃん
-  static born({ genes, traits, mutations, parents, sensitivity, x, z, heading }) {
+  static born({ genes, pattern, traits, mutations, parents, sensitivity, x, z, heading }) {
     return new Creature({
       id: makeId(),
       seed: randomSeed(),
       genes,
+      pattern,
       sensitivity,
       traits,
       mutations,
@@ -204,7 +215,7 @@ export class Creature {
 
   // ---- 環境による変化 ----
 
-  // 遺伝子を drift だけ、seconds 秒かけて静かに変える
+  // 遺伝子を drift だけ、seconds 秒かけて静かに変える(drift.pattern があれば、模様もその種類へ)
   shiftGenes(drift, seconds) {
     this.finishShift();
     this.shift = { drift, progress: 0, seconds };
@@ -216,6 +227,7 @@ export class Creature {
     const s = this.shift;
     if (!s) return;
     nudgeGenes(this.genes, s.drift, 1 - s.progress);
+    shiftPattern(this.pattern, s.drift, 1 - s.progress);
     this.shift = null;
   }
 
@@ -224,6 +236,7 @@ export class Creature {
     if (!s) return;
     const next = Math.min(1, s.progress + dt / s.seconds);
     nudgeGenes(this.genes, s.drift, next - s.progress);
+    shiftPattern(this.pattern, s.drift, next - s.progress);
     s.progress = next;
     if (next >= 1) this.shift = null;
     this.onChange?.();
@@ -305,11 +318,19 @@ export class Creature {
     return genes;
   }
 
+  // 保存する模様(変わっている途中なら、変わりきったあとの濃さ)
+  savedPattern() {
+    const p = { ...this.pattern };
+    if (this.shift) shiftPattern(p, this.shift.drift, 1 - this.shift.progress);
+    return p;
+  }
+
   toJSON() {
     return {
       id: this.id,
       seed: this.seed,
       genes: this.savedGenes(),
+      pattern: compactPattern(this.savedPattern()),
       x: this.x,
       z: this.z,
       heading: this.heading,
@@ -317,7 +338,14 @@ export class Creature {
       growth: this.growth,
       traits: { ...this.traits },
       mutations: this.mutations.map((m) => ({ ...m })),
-      parents: this.parents.map((p) => ({ id: p.id, seed: p.seed, genes: { ...p.genes }, traits: { ...(p.traits ?? {}) }, growth: p.growth })),
+      parents: this.parents.map((p) => ({
+        id: p.id,
+        seed: p.seed,
+        genes: { ...p.genes },
+        ...(p.pattern ? { pattern: { ...p.pattern } } : {}),
+        traits: { ...(p.traits ?? {}) },
+        growth: p.growth,
+      })),
       bornAt: this.bornAt,
       sensitivity: { ...this.sensitivity },
     };

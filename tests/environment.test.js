@@ -3,6 +3,9 @@ import { TANK_DATA_VERSION, Tank } from '../src/tank/tank.js';
 import { DEFAULT_ENV, ENV_CHANGE, NUTRIENT, PLANT_GROWTH, PLANT_LIMIT, SENSITIVITY, SENSITIVITY_KEYS } from '../src/tank/envConfig.js';
 import { normalizeEnv, targetFor } from '../src/tank/environment.js';
 import { plantStage } from '../src/tank/plants.js';
+import { SOILS } from '../src/tank/envConfig.js';
+import { Creature } from '../src/creature/creature.js';
+import { solidPattern } from '../src/creature/pattern.js';
 import { DAY_MS } from '../src/tank/algae.js';
 import { DROPPING } from '../src/tank/food.js';
 
@@ -86,11 +89,43 @@ describe('環境', () => {
     expect(c.toJSON().genes.glow).toBeCloseTo(0.215, 6);
     c.updateShift(ENV_CHANGE.SHIFT_SECONDS);
     expect(c.genes.glow).toBeCloseTo(0.215, 6);
-    // 泥:模様が網目(0.625 あたり)へ寄る
+    // 泥:模様が網目へ移り始める(古いデータのグラデーションから、そのまま網目へ)
+    expect(c.pattern.gradient).toBe(1);
     tank.setEnv({ soil: 'mud' });
     tick(tank, I);
     c.finishShift();
-    expect(c.genes.pattern).toBeCloseTo(0.885, 6);
+    const k = SENSITIVITY.LEVELS[c.sensitivity.soil].scale;
+    expect(c.pattern.net).toBeCloseTo(ENV_CHANGE.PATTERN_STEP * k, 9);
+    expect(c.pattern.gradient).toBeCloseTo(1 - ENV_CHANGE.PATTERN_STEP * k, 9);
+  });
+
+  it('模様は目標の模様へ直接移る。泥の斑点の子は、縞を通らずに網目になる。移り変わり具合は保存される', () => {
+    const tank = fromData(v2());
+    const c = tank.creatures[0];
+    c.pattern = solidPattern('spots');
+    c.sensitivity.soil = 'normal';
+    tank.setEnv({ soil: 'mud' });
+    for (let n = 1; n <= 45; n++) {
+      tick(tank, I);
+      c.finishShift();
+      expect(c.pattern.stripes).toBe(0);
+      expect(c.pattern.gradient).toBe(0);
+      if (n === 20) {
+        const saved = c.toJSON().pattern;
+        expect(saved.net).toBeCloseTo(20 * ENV_CHANGE.PATTERN_STEP, 3);
+        expect(new Creature(c.toJSON()).pattern.net).toBeCloseTo(saved.net, 3);
+      }
+    }
+    expect(c.pattern).toEqual(solidPattern('net')); // 約40分で移りきる
+    // 4つの土が、それぞれの模様へ寄せる
+    for (const [soil, kind] of [
+      ['pebble', 'spots'],
+      ['wave', 'stripes'],
+      ['mud', 'net'],
+      ['smooth', 'gradient'],
+    ]) {
+      expect(SOILS[soil].effect.become.pattern).toBe(kind);
+    }
   });
 
   it('当てはまっていた時間のぶんだけ変わる', () => {

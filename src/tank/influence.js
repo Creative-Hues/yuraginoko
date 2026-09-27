@@ -1,7 +1,8 @@
 // 「何から影響を受けているか」の文章づくり(描画はしない)。
 // 文章は envConfig.js の effect の定義と EFFECT_WORDS、genes.js の FOODS から作るので、
 // 植物や土を増やしたときは、一覧や一言にも自動で並ぶ。
-import { FOODS, FOOD_KEYS, patternMix } from '../creature/genes.js';
+import { FOODS, FOOD_KEYS } from '../creature/genes.js';
+import { PATTERN_NAMES } from '../creature/pattern.js';
 import {
   CURRENT_EFFECT,
   CURRENT_NAMES,
@@ -11,7 +12,6 @@ import {
   LIGHT_COLORS,
   LIGHT_COLOR_KEYS,
   NO_EFFECT_TEXT,
-  PATTERN_NAMES,
   PLANTS,
   PLANT_KEYS,
   SOILS,
@@ -20,6 +20,7 @@ import {
 import { EFFECT_MODES, activeSources, lightEffect } from './environment.js';
 
 const FROM_FOOD_NOTE = 'エサのあとに生えることがある';
+const PATTERN_DONE = 0.99; // 目標の模様がこれだけ濃くなったら、移り変わりは終わり
 
 // 効果 → 「突起が増える」「透けやすくなる、光り方が強くなる」など。中身がなければ「変化なし」
 export function effectText(effect) {
@@ -28,7 +29,7 @@ export function effectText(effect) {
     for (const [key, target] of Object.entries(effect?.[mode] ?? {})) {
       let w = EFFECT_WORDS[key]?.[mode];
       if (!w) continue;
-      if (w.includes('{pattern}')) w = w.replace('{pattern}', PATTERN_NAMES[patternMix(target).main] ?? '');
+      if (w.includes('{pattern}')) w = w.replace('{pattern}', PATTERN_NAMES[target] ?? '');
       if (!words.includes(w)) words.push(w);
     }
   }
@@ -97,6 +98,19 @@ export function lightHint(env) {
 export function currentHint(env) {
   const on = env.current.strength > INFLUENCE_MIN;
   return `水流:${on ? effectText(CURRENT_EFFECT) : NO_EFFECT_TEXT}`;
+}
+
+// ---- 観察中の一言 ----
+
+// 模様が、今の環境で目標の模様へ移り変わっている途中なら、その模様の名前(なければ null)
+export function patternChange(creature, env, plants) {
+  for (const s of activeSources(creature, env, plants)) {
+    const kind = s.effect?.become?.pattern;
+    if (!kind || !PATTERN_NAMES[kind]) continue;
+    if ((creature.pattern?.[kind] ?? 0) >= PATTERN_DONE) continue;
+    return PATTERN_NAMES[kind];
+  }
+  return null;
 }
 
 // ---- 観察中の「いま受けている影響」 ----
