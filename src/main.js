@@ -1,16 +1,20 @@
 import './style.css';
 import {
   addPersona,
+  deleteMoment,
   listAllTanks,
+  listMoments,
   listPersonas,
   listSpecimens,
   listTanks,
   loadTank,
   markOpened,
   renameTank,
+  saveMoment,
   saveSpecimen,
   saveTank,
   saveTanks,
+  updateMoment,
   updateSpecimen,
 } from './storage/db.js';
 import { Tank } from './tank/tank.js';
@@ -26,6 +30,7 @@ import { renderShelf, tankLabel } from './ui/shelf.js';
 import { renderHomeChoice } from './ui/homeUi.js';
 import { renderSpecimenDetail, renderSpecimenList } from './ui/specimenUi.js';
 import { renderTextDialog } from './ui/textDialog.js';
+import { photo, renderCollectionList, renderMomentDelete, renderMomentDetail } from './ui/collectionUi.js';
 import { el } from './ui/dom.js';
 import { createObserveUi } from './ui/observeUi.js';
 import { createEditUi } from './ui/editUi.js';
@@ -115,6 +120,7 @@ const observeUi = createObserveUi(document.getElementById('observe-ui'), {
   onCare: () => {
     if (observing) attempt('この子のこと', () => showHome({ selected: observing.id }));
   },
+  onKeep: () => attempt('この瞬間を残す', () => keepMoment()),
 });
 
 // seen: 今この水槽を見ていたか(見ていた時刻として残す)
@@ -194,7 +200,7 @@ async function refreshTankButton() {
   await attempt('水槽の一覧', async () => (tanks = await listTanks(persona.id)));
   const index = Math.max(0, tanks.findIndex((t) => t.id === tank.id));
   current.label = tankLabel(tank, index);
-  tankButton.textContent = tanks.length > 1 || tank.name ? `${persona.name}・${current.label}` : `${persona.name} の水槽`;
+  tankButton.textContent = tanks.length > 1 || tank.name ? `${persona.name}・${current.label}` : `${persona.name}の水槽`;
 }
 
 // ---- 掃除モード ----
@@ -401,6 +407,7 @@ async function showShelf({ only = null, title } = {}) {
       }),
     onRename: (persona, rec, index) => showRename(rec, index, again),
     onSpecimens: (persona) => attempt('標本', () => showSpecimens(persona, again)),
+    onCollection: (persona) => attempt('図鑑', () => showCollection(persona, again)),
     onOther: () => showWho({ canGoBack: !!current }),
     onClose: current ? closeOverlay : null,
   });
@@ -456,6 +463,122 @@ function showSpecimen(specimen, back) {
           }),
       }),
   });
+}
+
+// ---- この瞬間を残す(図鑑) ----
+const SNAP_WAIT = 900; // 光が引いてから、名前とメモの画面を出すまで(ms)
+let keeping = false; // 光っている間は、もう一度押しても重ねない
+
+// 写真を撮ったような、静かな光(DOM と CSS だけ。音・振動なし)
+function snapLight() {
+  const light = el('div', { class: 'snap-light', 'aria-hidden': 'true' });
+  document.body.append(light);
+  setTimeout(() => light.remove(), 2000);
+  return new Promise((resolve) => setTimeout(resolve, SNAP_WAIT));
+}
+
+// 押した瞬間の姿(揺らぎを含めた見た目も)を写し、名前とメモをつけて図鑑に残す。生き物は水槽にいたまま
+async function keepMoment() {
+  if (!observing || !current || keeping) return;
+  const c = observing;
+  const { persona, tank } = current;
+  const moment = {
+    id: makeId(),
+    personaId: persona.id,
+    tankId: tank.id,
+    tankLabel: current.label, // 水槽が見つからないときの控え
+    creatureId: c.id,
+    name: '',
+    note: '',
+    takenAt: Date.now(),
+    creature: c.toJSON(),
+    look: { ...c.expressed },
+  };
+  keeping = true;
+  try {
+    await snapLight();
+  } finally {
+    keeping = false;
+  }
+  renderTextDialog(overlay, {
+    title: 'この瞬間を残す',
+    lead: photo(moment, 240, 160, 'lead').frame,
+    fields: [
+      { key: 'name', label: '名前(なくてもだいじょうぶ)', value: '' },
+      { key: 'note', label: 'メモ(なくてもだいじょうぶ)', value: '', multiline: true },
+    ],
+    okText: '残す',
+    cancelText: 'やめる',
+    onCancel: closeOverlay,
+    onOk: ({ name, note }) =>
+      attempt('この瞬間を残す', async () => {
+        await saveMoment({ ...moment, name, note });
+        closeOverlay();
+        syncUi();
+      }),
+  });
+}
+
+async function showCollection(persona, back) {
+  const moments = await listMoments(persona.id);
+  const tanks = (await listTanks(persona.id)).map((t, i) => ({ id: t.id, label: tankLabel(t, i), creatures: t.creatures ?? [] }));
+  const again = () => attempt('図鑑', () => showCollection(persona, back));
+  renderCollectionList(overlay, {
+    persona,
+    moments,
+    tanks,
+    onOpen: (m) => attempt('図鑑', () => showMoment(m, persona, tanks, again)),
+    onBack: back,
+  });
+}
+
+// 元の子が今いる水槽の id(標本になった子など、どこにもいなければ null)。ほかの水槽へ移った子も探す
+function findCreatureTank(personaId, creatureId, tanks) {
+  if (current?.persona.id === personaId && current.tank.creatures.some((c) => c.id === creatureId)) return current.tank.id;
+  const t = tanks.find((x) => x.id !== current?.tank.id && x.creatures.some((c) => c.id === creatureId));
+  return t?.id ?? null;
+}
+
+function showMoment(moment, persona, tanks, back) {
+  const tankId = findCreatureTank(persona.id, moment.creatureId, tanks);
+  renderMomentDetail(overlay, {
+    moment,
+    tankLabel: tanks.find((t) => t.id === moment.tankId)?.label ?? moment.tankLabel,
+    onBack: back,
+    onVisit: tankId ? () => attempt('今の姿を見に行く', () => visitCreature(persona, tankId, moment.creatureId)) : null,
+    onEdit: () =>
+      renderTextDialog(overlay, {
+        title: '名前とメモ',
+        fields: [
+          { key: 'name', label: '名前', value: moment.name },
+          { key: 'note', label: 'メモ', value: moment.note, multiline: true },
+        ],
+        onCancel: () => showMoment(moment, persona, tanks, back),
+        onOk: (values) =>
+          attempt('名前とメモ', async () => {
+            const next = (await updateMoment(moment.id, values)) ?? moment;
+            showMoment(next, persona, tanks, back);
+          }),
+      }),
+    onDelete: () =>
+      renderMomentDelete(overlay, {
+        moment,
+        onCancel: () => showMoment(moment, persona, tanks, back),
+        onOk: () =>
+          attempt('図鑑から消す', async () => {
+            await deleteMoment(moment.id);
+            await back();
+          }),
+      }),
+  });
+}
+
+// その子のいる水槽を開いて、観察モードで見る
+async function visitCreature(persona, tankId, creatureId) {
+  if (current?.tank.id !== tankId) await openTank(persona, tankId);
+  closeOverlay();
+  const c = current?.tank.creatures.find((x) => x.id === creatureId);
+  if (c) enterObserve(c);
 }
 
 // ---- すみかを決める(標本にする・別の水槽へ移す) ----

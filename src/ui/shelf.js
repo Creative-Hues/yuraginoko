@@ -46,12 +46,15 @@ function miniTank(rec, index, { current, onOpen, onRename }) {
 }
 
 // groups: [{ persona, index(人の順番), tanks: [保存データ] }]
-export function renderShelf(root, { title = '水槽', lead, groups, currentTankId, onOpen, onAddTank, onRename, onSpecimens, onOther, onClose }) {
+export function renderShelf(root, { title = '水槽', lead, groups, currentTankId, onOpen, onAddTank, onRename, onSpecimens, onCollection, onOther, onClose }) {
   const shelves = groups.map(({ persona, index, tanks }) =>
     el('section', { class: 'shelf' }, [
       el('div', { class: 'shelf-head' }, [
-        el('span', { class: 'shelf-name', text: persona.name, style: { background: personaColor(index) } }),
-        el('button', { class: 'chip', type: 'button', text: '標本', onclick: () => onSpecimens(persona) }),
+        el('span', { class: 'shelf-name', text: `${persona.name}の水槽`, style: { background: personaColor(index) } }),
+        el('div', { class: 'shelf-chips' }, [
+          el('button', { class: 'chip', type: 'button', text: '図鑑', onclick: () => onCollection(persona) }),
+          el('button', { class: 'chip', type: 'button', text: '標本', onclick: () => onSpecimens(persona) }),
+        ]),
       ]),
       el('div', { class: 'shelf-row' }, [
         ...tanks.map((rec, i) =>
@@ -74,7 +77,7 @@ export function renderShelf(root, { title = '水槽', lead, groups, currentTankI
     lead ? el('p', { text: lead }) : null,
     ...shelves,
     el('div', { class: 'row spread' }, [
-      onOther ? el('button', { class: 'btn sub', type: 'button', text: 'ほかの人', onclick: onOther }) : el('span'),
+      onOther ? el('button', { class: 'btn sub', type: 'button', text: 'ほかの名前', onclick: onOther }) : el('span'),
       onClose ? el('button', { class: 'btn sub', type: 'button', text: 'とじる', onclick: onClose }) : null,
     ]),
   ]);

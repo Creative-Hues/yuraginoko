@@ -776,9 +776,6 @@ body {
   text-align: center;
   word-break: break-all;
 }
-.panel p.specimen-owner {
-  margin-top: -8px;
-}
 .specimen-detail {
   display: flex;
   gap: 18px;
@@ -924,4 +921,104 @@ body {
   margin: 4px 0 0;
   font-size: 13px;
   color: #d9ccef;
+}
+
+/* ---- 図鑑(残した瞬間) ---- */
+
+/* 観察モード:「この子のこと」の下の「この瞬間を残す」 */
+.pill.right.second {
+  top: calc(var(--safe-top) + 62px);
+}
+
+/* 残すときの、写真を撮ったような静かな光 */
+.snap-light {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  pointer-events: none;
+  background: radial-gradient(ellipse at 50% 45%, rgba(255, 252, 242, 0.8), rgba(255, 250, 240, 0.45) 55%, rgba(255, 255, 255, 0.2));
+  opacity: 0;
+  animation: snap-light 1.3s ease-out forwards;
+}
+@keyframes snap-light {
+  0% {
+    opacity: 0;
+  }
+  18% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .snap-light {
+    animation-duration: 0.7s;
+    background: rgba(255, 252, 242, 0.25);
+  }
+}
+
+/* 写真の額(標本の結晶と区別する) */
+.photo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 3 / 2;
+  overflow: hidden;
+  border: 6px solid #f4ecff;
+  border-radius: 4px;
+  background: radial-gradient(ellipse at 50% 40%, #2d1a4d, #140a24);
+  box-shadow:
+    0 0 0 3px var(--ink),
+    4px 4px 0 3px var(--ink);
+}
+.photo .pic {
+  width: 92%;
+  height: auto;
+}
+.photo.lead {
+  width: min(240px, 100%);
+  margin: 3px auto 16px;
+}
+.specimen-detail .photo.large {
+  flex: none;
+  width: min(300px, 45vw);
+}
+
+.collection-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.group-dot {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  border: 2.5px solid var(--ink);
+  border-radius: 50%;
+}
+.panel h2.collection-tank {
+  margin: 16px 0 8px;
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--paper);
+}
+.panel h2.collection-tank:first-child {
+  margin-top: 0;
+}
+.moment-more {
+  margin-top: 10px;
+}
+.shelf-chips {
+  display: flex;
+  gap: 8px;
+}
+.panel p.specimen-sensitivity + p.specimen-date {
+  margin-top: 10px;
 }

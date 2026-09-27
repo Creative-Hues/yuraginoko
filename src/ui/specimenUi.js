@@ -35,8 +35,7 @@ export function renderSpecimenList(root, { persona, specimens, onOpen, onBack })
     : el('p', { text: '標本にした子は、ここに並びます。' });
   root.replaceChildren(
     el('div', { class: 'panel wide' }, [
-      el('h1', { text: '標本' }),
-      el('p', { class: 'specimen-owner', text: persona.name }),
+      el('h1', { text: `${persona.name}の標本` }),
       grid,
       el('div', { class: 'row' }, [el('button', { class: 'btn sub', type: 'button', text: 'もどる', onclick: onBack })]),
     ]),

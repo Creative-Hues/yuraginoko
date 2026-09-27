@@ -1,4 +1,4 @@
-// 観察モードのボタン:もどる、この子のこと(標本・別の水槽へ)、エサ(4種)、消化させる、排泄させる。
+// 観察モードのボタン:もどる、この子のこと(標本・別の水槽へ)、この瞬間を残す(図鑑へ)、エサ(4種)、消化させる、排泄させる。
 // 今の食事の段階に合うボタンだけを出す。1周したあとは、エサのボタンが薄くなってゆっくり戻る。
 // 上の真ん中には、控えめな一言の欄(生き物:いま受けている影響・繁殖の準備・受けやすさ / 卵:「たまご」とようす)。
 import { el } from './dom.js';
@@ -8,7 +8,7 @@ import { lerp } from '../util/math.js';
 
 const REST_OPACITY = 0.25; // 休み始めのボタンの濃さ
 
-export function createObserveUi(root, { onBack, onFood, onDigest, onExcrete, onCare }) {
+export function createObserveUi(root, { onBack, onFood, onDigest, onExcrete, onCare, onKeep }) {
   const foodButtons = FOOD_KEYS.map((key) =>
     el('button', { class: 'meal-btn', type: 'button', onclick: () => onFood(key) }, [
       el('span', { class: 'food-dot', style: { background: FOODS[key].color } }),
@@ -21,8 +21,9 @@ export function createObserveUi(root, { onBack, onFood, onDigest, onExcrete, onC
   const bar = el('div', { class: 'meal-bar' }, [foods, digest, excrete]);
   const back = el('button', { class: 'pill', type: 'button', text: 'もどる', onclick: () => onBack() });
   const care = el('button', { class: 'pill right', type: 'button', text: 'この子のこと', onclick: () => onCare() });
+  const keep = el('button', { class: 'pill right second', type: 'button', text: 'この瞬間を残す', onclick: () => onKeep() });
   const info = el('div', { class: 'observe-info', 'aria-live': 'polite' });
-  root.replaceChildren(back, care, info, bar);
+  root.replaceChildren(back, care, keep, info, bar);
 
   let shown = '';
   let opacity = -1;
@@ -53,6 +54,7 @@ export function createObserveUi(root, { onBack, onFood, onDigest, onExcrete, onC
       if (key !== shown) {
         shown = key;
         care.hidden = false;
+        keep.hidden = false;
         bar.hidden = false;
         const showFoods = stage === MEAL.ready || resting;
         foods.hidden = !showFoods;
@@ -76,6 +78,7 @@ export function createObserveUi(root, { onBack, onFood, onDigest, onExcrete, onC
       if (shown !== 'egg') {
         shown = 'egg';
         care.hidden = true;
+        keep.hidden = true;
         bar.hidden = true;
       }
       setInfo([

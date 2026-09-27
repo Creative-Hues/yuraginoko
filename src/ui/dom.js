@@ -13,6 +13,6 @@ export function el(tag, props = {}, children = []) {
   return node;
 }
 
-// 人格ごとのボタンの色(順番に使う)
+// 名前ごとのボタンの色(順番に使う)
 const COLORS = ['#c6ff3d', '#ff3da6', '#3de8ff', '#ffb13d', '#9b5cff', '#7dffb0'];
 export const personaColor = (i) => COLORS[i % COLORS.length];

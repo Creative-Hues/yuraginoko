@@ -4,13 +4,14 @@
 // - personas:  { id, name, createdAt, lastOpenedAt }
 // - aquaria:   水槽 { id, personaId, name, createdAt, version, seed, creatures: [...], things: {...}, savedAt, ... }(index: personaId)
 // - specimens: 標本 { id, personaId, name, note, madeAt, creature: {...}, ... }(index: personaId)
+// - moments:   図鑑(残した瞬間){ id, personaId, tankId, creatureId, name, note, takenAt, creature: {...}, look: {...} }(index: personaId)
 // - tanks:     (フェーズ3まで)1人1つの水槽。DB_VERSION 2 で aquaria に写した。念のための控えとして消さずに残す
 //
 // 後のフェーズでストアを足すときは、DB_VERSION を上げて upgrade() に手順を追加する。
 import { makeId } from '../util/random.js';
 
 const DB_NAME = 'aquarium';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 let dbPromise = null;
 
@@ -33,6 +34,11 @@ function upgrade(db, oldVersion, tx) {
       aquaria.put({ ...rec, id: rec.id ?? rec.personaId, name: rec.name ?? '', createdAt: rec.createdAt ?? rec.savedAt ?? Date.now() });
       cursor.continue();
     };
+  }
+  if (oldVersion < 3) {
+    // 図鑑(残した瞬間)。今までのストアには触れない
+    const moments = db.createObjectStore('moments', { keyPath: 'id' });
+    moments.createIndex('personaId', 'personaId');
   }
 }
 
@@ -163,4 +169,33 @@ export async function updateSpecimen(id, { name, note }) {
   const next = { ...s, name: String(name ?? '').trim(), note: String(note ?? '').trim() };
   await run('specimens', 'readwrite', (st) => st().put(next));
   return next;
+}
+
+// ---- 図鑑(残した瞬間) ----
+
+// その人の図鑑(残した順)
+export async function listMoments(personaId) {
+  const all = await run('moments', 'readonly', (s) => s().index('personaId').getAll(personaId));
+  return all.sort((a, b) => (a.takenAt ?? 0) - (b.takenAt ?? 0));
+}
+
+export function getMoment(id) {
+  return run('moments', 'readonly', (s) => s().get(id));
+}
+
+export function saveMoment(moment) {
+  return run('moments', 'readwrite', (s) => s().put(moment));
+}
+
+// 名前とメモを直す
+export async function updateMoment(id, { name, note }) {
+  const m = await getMoment(id);
+  if (!m) return null;
+  const next = { ...m, name: String(name ?? '').trim(), note: String(note ?? '').trim() };
+  await run('moments', 'readwrite', (s) => s().put(next));
+  return next;
+}
+
+export function deleteMoment(id) {
+  return run('moments', 'readwrite', (s) => s().delete(id));
 }
