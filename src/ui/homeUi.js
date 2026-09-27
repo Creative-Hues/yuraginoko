@@ -34,10 +34,16 @@ export function renderHomeChoice(root, { creatures, selectedId, targets, crowded
     ),
   );
 
+  // それぞれの選び方に、短い説明を添える(違いがわかるように)
+  const action = (label, desc, onclick) =>
+    el('button', { class: 'btn action-btn', type: 'button', onclick }, [
+      el('span', { class: 'action-label', text: label }),
+      el('span', { class: 'action-desc', text: desc }),
+    ]);
   const actions = el('div', { class: 'home-actions' }, [
-    el('button', { class: 'btn', type: 'button', text: '標本にする', onclick: () => selected && onSpecimen(selected) }),
-    el('button', { class: 'btn', type: 'button', text: '新しい水槽へ', onclick: () => selected && onNewTank(selected) }),
-    ...targets.map((t) => el('button', { class: 'btn', type: 'button', text: `${t.label}へ`, onclick: () => selected && onMove(selected, t.id) })),
+    action('標本にする', '水槽から離れて、結晶の中で今の姿のまま残ります', () => selected && onSpecimen(selected)),
+    action('新しい水槽へ', '新しい水槽で、このまま暮らし続けます', () => selected && onNewTank(selected)),
+    ...targets.map((t) => action(`${t.label}へ`, 'その水槽で、このまま暮らし続けます', () => selected && onMove(selected, t.id))),
   ]);
   const note = el('p', { class: 'home-note' });
 
@@ -57,6 +63,7 @@ export function renderHomeChoice(root, { creatures, selectedId, targets, crowded
     el('div', { class: 'pick-grid' }, cards),
     note,
     actions,
+    el('p', { class: 'home-hint', text: '今の姿を残すだけなら、観察の「図鑑に残す」でできます。' }),
     el('div', { class: 'row' }, [el('button', { class: 'btn sub', type: 'button', text: crowded ? 'あとで決める' : 'やめる', onclick: () => onLater() })]),
   ]);
   root.replaceChildren(panel);

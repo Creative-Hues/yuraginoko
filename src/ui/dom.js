@@ -16,3 +16,6 @@ export function el(tag, props = {}, children = []) {
 // 名前ごとのボタンの色(順番に使う)
 const COLORS = ['#c6ff3d', '#ff3da6', '#3de8ff', '#ffb13d', '#9b5cff', '#7dffb0'];
 export const personaColor = (i) => COLORS[i % COLORS.length];
+
+// 名前が空欄のときの表示(図鑑・標本の一覧と詳しい画面で共通)
+export const displayName = (item) => item?.name || '名無し';

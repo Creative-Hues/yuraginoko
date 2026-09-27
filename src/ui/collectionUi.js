@@ -1,6 +1,6 @@
 // 図鑑の画面:人ごとの一覧と、1つの瞬間の詳しい画面、消すときの確認。
 // 姿は残した瞬間のまま(静止画)。生き物そのものは水槽にいて、変わり続けている。
-import { el } from './dom.js';
+import { displayName, el } from './dom.js';
 import { portrait, portraitColor } from '../creature/portrait.js';
 import { COLOR_GROUPS, byGradient, colorGroupOf } from '../creature/colorGroup.js';
 import { normalizeTraits, traitLines } from '../creature/traits.js';
@@ -16,7 +16,6 @@ const SORTS = [
 // 選んでいる並べ替えと絞り込み(開いている間だけ覚える。保存はしない)
 const view = { sort: 'time', group: 'all' };
 
-const displayName = (m) => m.name || 'なまえはまだ';
 const lookData = (m) => ({ ...(m.creature ?? {}), look: m.look });
 
 export function formatDateTime(ms) {
@@ -105,7 +104,7 @@ export function renderCollectionList(root, { persona, moments, tanks, onOpen, on
             el('div', { class: 'chip-row' }, sortChips),
             present.length > 1 ? el('div', { class: 'chip-row' }, groupChips) : null,
           ])
-        : el('p', { text: '残した瞬間は、ここに並びます。観察しているときの「この瞬間を残す」から残せます。' }),
+        : el('p', { text: '残した瞬間は、ここに並びます。観察しているときの「図鑑に残す」から残せます。' }),
       body,
       el('div', { class: 'row' }, [el('button', { class: 'btn sub', type: 'button', text: 'もどる', onclick: onBack })]),
     ]),
@@ -128,16 +127,17 @@ export function renderMomentDetail(root, { moment: m, tankLabel, onVisit, onEdit
     }),
     el('p', { class: 'specimen-date', text: `残した日:${formatDateTime(m.takenAt)}` }),
     tankLabel ? el('p', { class: 'specimen-date', text: `${tankLabel}で残しました` }) : null,
-    el('div', { class: 'row spread' }, [
-      el('button', { class: 'btn sub', type: 'button', text: 'もどる', onclick: onBack }),
-      el('button', { class: 'btn', type: 'button', text: 'なおす', onclick: onEdit, 'aria-label': '名前とメモをなおす' }),
-    ]),
-    el('div', { class: 'row spread moment-more' }, [
-      onVisit ? el('button', { class: 'btn', type: 'button', text: '今の姿を見に行く', onclick: onVisit }) : el('span'),
-      el('button', { class: 'btn sub', type: 'button', text: '図鑑から消す', onclick: onDelete }),
+    // ボタンは縦に:もどる・なおす(同じ幅)/ 今の姿を見に行く(幅いっぱい)/ 図鑑から消す(控えめ)
+    el('div', { class: 'detail-actions' }, [
+      el('div', { class: 'detail-pair' }, [
+        el('button', { class: 'btn sub', type: 'button', text: 'もどる', onclick: onBack }),
+        el('button', { class: 'btn', type: 'button', text: 'なおす', onclick: onEdit, 'aria-label': '名前とメモをなおす' }),
+      ]),
+      onVisit ? el('button', { class: 'btn', type: 'button', text: '今の姿を見に行く', onclick: onVisit }) : null,
+      el('button', { class: 'quiet-btn', type: 'button', text: '図鑑から消す', onclick: onDelete }),
     ]),
   ]);
-  root.replaceChildren(el('div', { class: 'panel wide specimen-detail' }, [photo(m, 300, 200, 'large').frame, info]));
+  root.replaceChildren(el('div', { class: 'panel wide specimen-detail' }, [photo(m, 260, 173, 'large').frame, info]));
 }
 
 // 消す前の確認(1回だけ)

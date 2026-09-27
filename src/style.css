@@ -783,7 +783,7 @@ body {
 }
 .specimen-detail .crystal.large {
   flex: none;
-  width: min(300px, 45vw);
+  width: min(260px, 40vw);
 }
 .specimen-info {
   flex: 1;
@@ -925,7 +925,7 @@ body {
 
 /* ---- 図鑑(残した瞬間) ---- */
 
-/* 観察モード:「この子のこと」の下の「この瞬間を残す」 */
+/* 観察モード:「この子のこと」の下の「図鑑に残す」 */
 .pill.right.second {
   top: calc(var(--safe-top) + 62px);
 }
@@ -982,7 +982,7 @@ body {
 }
 .specimen-detail .photo.large {
   flex: none;
-  width: min(300px, 45vw);
+  width: min(260px, 40vw);
 }
 
 .collection-tools {
@@ -1012,13 +1012,77 @@ body {
 .panel h2.collection-tank:first-child {
   margin-top: 0;
 }
-.moment-more {
-  margin-top: 10px;
-}
 .shelf-chips {
   display: flex;
   gap: 8px;
 }
 .panel p.specimen-sensitivity + p.specimen-date {
   margin-top: 10px;
+}
+
+/* 詳しい画面(図鑑・標本)のボタン:縦に並べて、右側の欄からはみ出さないように */
+.detail-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 16px;
+}
+.detail-pair {
+  display: flex;
+  gap: 10px;
+}
+.detail-pair .btn {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.detail-actions .btn {
+  padding-left: 10px;
+  padding-right: 10px;
+}
+/* 控えめなボタン(図鑑から消す):枠と色なし。押せる大きさは保つ */
+.quiet-btn {
+  align-self: flex-end;
+  min-height: 44px;
+  margin-top: 6px;
+  padding: 4px 6px;
+  border: none;
+  background: none;
+  color: #b8a8d4;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.quiet-btn:active {
+  color: var(--paper);
+}
+
+/* 「この子のこと」の選び方:名前と短い説明 */
+.home-actions .action-btn {
+  display: flex;
+  flex: 1 1 180px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  text-align: left;
+}
+.action-label {
+  font-size: 16px;
+}
+.action-desc {
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+  opacity: 0.8;
+}
+.panel p.home-hint {
+  margin: 12px 0 0;
+  font-size: 12px;
+}
+/* 入力画面の、姿の下の一言 */
+.panel p.lead-note {
+  margin: -4px 0 14px;
+  font-size: 13px;
+  text-align: center;
 }

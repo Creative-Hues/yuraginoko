@@ -1,6 +1,6 @@
 // 標本の画面:人ごとの一覧と、1つの標本の詳しい画面。
 // 姿は標本にした瞬間のまま(静止画)。結晶の光だけが、CSS でごくゆっくりゆらぐ。
-import { el } from './dom.js';
+import { displayName, el } from './dom.js';
 import { portrait, portraitColor } from '../creature/portrait.js';
 import { normalizeSensitivity, sensitivityLines } from '../creature/sensitivity.js';
 import { normalizeTraits, traitLines } from '../creature/traits.js';
@@ -12,8 +12,6 @@ function crystal(data, w, h, extraClass = '') {
     : el('span', { class: 'pic-dot', style: { background: portraitColor(data) } });
   return el('div', { class: `crystal ${extraClass}`.trim() }, [inner, el('span', { class: 'crystal-light' })]);
 }
-
-const displayName = (s) => s.name || 'なまえはまだ';
 
 function formatDate(ms) {
   const d = new Date(ms);
@@ -69,10 +67,12 @@ export function renderSpecimenDetail(root, { specimen: s, onEdit, onBack }) {
         ])
       : null,
     el('p', { class: 'specimen-date', text: `標本にした日:${formatDate(s.madeAt)}` }),
-    el('div', { class: 'row spread' }, [
-      el('button', { class: 'btn sub', type: 'button', text: 'もどる', onclick: onBack }),
-      el('button', { class: 'btn', type: 'button', text: 'なおす', onclick: onEdit, 'aria-label': '名前と説明をなおす' }),
+    el('div', { class: 'detail-actions' }, [
+      el('div', { class: 'detail-pair' }, [
+        el('button', { class: 'btn sub', type: 'button', text: 'もどる', onclick: onBack }),
+        el('button', { class: 'btn', type: 'button', text: 'なおす', onclick: onEdit, 'aria-label': '名前と説明をなおす' }),
+      ]),
     ]),
   ]);
-  root.replaceChildren(el('div', { class: 'panel wide specimen-detail' }, [crystal(s.creature, 300, 200, 'large'), info]));
+  root.replaceChildren(el('div', { class: 'panel wide specimen-detail' }, [crystal(s.creature, 260, 173, 'large'), info]));
 }

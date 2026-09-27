@@ -120,7 +120,7 @@ const observeUi = createObserveUi(document.getElementById('observe-ui'), {
   onCare: () => {
     if (observing) attempt('この子のこと', () => showHome({ selected: observing.id }));
   },
-  onKeep: () => attempt('この瞬間を残す', () => keepMoment()),
+  onKeep: () => attempt('図鑑に残す', () => keepMoment()),
 });
 
 // seen: 今この水槽を見ていたか(見ていた時刻として残す)
@@ -465,7 +465,7 @@ function showSpecimen(specimen, back) {
   });
 }
 
-// ---- この瞬間を残す(図鑑) ----
+// ---- 図鑑に残す(その瞬間の姿を写す。生き物は水槽にいたまま) ----
 const SNAP_WAIT = 900; // 光が引いてから、名前とメモの画面を出すまで(ms)
 let keeping = false; // 光っている間は、もう一度押しても重ねない
 
@@ -501,17 +501,20 @@ async function keepMoment() {
     keeping = false;
   }
   renderTextDialog(overlay, {
-    title: 'この瞬間を残す',
-    lead: photo(moment, 240, 160, 'lead').frame,
+    title: '図鑑に残す',
+    lead: el('div', {}, [
+      photo(moment, 240, 160, 'lead').frame,
+      el('p', { class: 'lead-note', text: '今の姿を写真のように図鑑に残します。この子はこのまま水槽で暮らし続けます。' }),
+    ]),
     fields: [
       { key: 'name', label: '名前(なくてもだいじょうぶ)', value: '' },
       { key: 'note', label: 'メモ(なくてもだいじょうぶ)', value: '', multiline: true },
     ],
-    okText: '残す',
+    okText: '図鑑に残す',
     cancelText: 'やめる',
     onCancel: closeOverlay,
     onOk: ({ name, note }) =>
-      attempt('この瞬間を残す', async () => {
+      attempt('図鑑に残す', async () => {
         await saveMoment({ ...moment, name, note });
         closeOverlay();
         syncUi();
@@ -614,7 +617,10 @@ function showSpecimenForm(id, back) {
   const url = creaturePortrait(c.toJSON(), 240, 160);
   renderTextDialog(overlay, {
     title: '標本にする',
-    lead: el('div', { class: 'crystal lead' }, [url ? el('img', { class: 'pic', src: url, alt: '' }) : null, el('span', { class: 'crystal-light' })]),
+    lead: el('div', {}, [
+      el('div', { class: 'crystal lead' }, [url ? el('img', { class: 'pic', src: url, alt: '' }) : null, el('span', { class: 'crystal-light' })]),
+      el('p', { class: 'lead-note', text: '水槽から離れて、結晶の中で今の姿のまま残ります。' }),
+    ]),
     fields: [
       { key: 'name', label: '名前(なくてもだいじょうぶ)', value: '' },
       { key: 'note', label: '説明(なくてもだいじょうぶ)', value: '', multiline: true },
