@@ -17,7 +17,6 @@ export const GENE_GROUPS = {
 export const GENE_DEFS = [
   // 形
   { key: 'bodyLength', group: 'shape', label: '体の長さ', low: '細長い', high: 'ずんぐり', wobble: 0.012, period: 29 },
-  { key: 'spikeCount', group: 'shape', label: '突起の数', low: 'つるつる', high: 'トゲだらけ', wobble: 0.01, period: 37 },
   { key: 'spikeLength', group: 'shape', label: '突起の長さ', low: '短いこぶ', high: '長いひらひら', wobble: 0.015, period: 23 },
   { key: 'edgeRuffle', group: 'shape', label: '縁のうねり', low: 'まっすぐ', high: 'フリル状', wobble: 0.015, period: 19 },
   // 色と模様
@@ -29,10 +28,22 @@ export const GENE_DEFS = [
   // 動き
   { key: 'crawlSpeed', group: 'motion', label: '這う速さ', low: 'のんびり', high: 'すいすい', wobble: 0.01, period: 53 },
   { key: 'floatiness', group: 'motion', label: '浮きやすさ', low: '底が好き', high: 'よく浮く', wobble: 0.01, period: 47 },
-  { key: 'wriggliness', group: 'motion', label: 'うねりやすさ', low: 'おだやか', high: 'よくうねる', wobble: 0.01, period: 59 },
 ];
 
 export const GENE_KEYS = GENE_DEFS.map((d) => d.key);
+
+// 特徴遺伝子(生まれつきの5項目。環境・エサ・触れ合いでは変わらない。受け継ぎと突然変異は traits.js、調整値は lifeConfig.js の TRAITS)
+// - short: 標本画面での短い名前、words: 値の低い・真ん中・高いときの言葉
+// - blink: 点滅する光模様(TRAITS.BLINK.HAS 以上で「持っている」)
+// spikeCount・wriggliness は、前は上の遺伝子の一つだった(古いデータでは genes の中にある)
+export const TRAIT_DEFS = [
+  { key: 'spikeCount', label: '突起の数', short: '突起の数', words: ['少ない', 'ふつう', '多い'] },
+  { key: 'wriggliness', label: '泳ぎ方の激しさ', short: '泳ぎ方', words: ['おだやか', 'ふつう', '激しい'] },
+  { key: 'tailLength', label: '尾の長さ', short: '尾', words: ['短い', 'ふつう', '長い'] },
+  { key: 'antennaLength', label: '触角の長さ', short: '触角', words: ['短い', 'ふつう', '長い'] },
+  { key: 'blink', label: '点滅する光模様', short: '点滅する光', words: ['なし', '控えめ', 'はっきり'], blink: true },
+];
+export const TRAIT_KEYS = TRAIT_DEFS.map((d) => d.key);
 
 // pattern の値を4つに区切って模様を決める(0〜0.25 斑点、…、0.75〜1 グラデーション)
 export const PATTERN_TYPES = ['spots', 'stripes', 'net', 'gradient'];
@@ -76,8 +87,10 @@ export function randomGenes(rng) {
 
 // 保存されていた遺伝子を読み込む。
 // 後から項目が増えたときは、足りない項目だけ乱数で補う(古いデータもそのまま使える)。
+// 特徴遺伝子に移した項目(古いデータの spikeCount・wriggliness)は、ここでは外す(traits.js が引き継ぐ)。
 export function normalizeGenes(saved, rng) {
   const genes = { ...(saved ?? {}) };
+  for (const k of TRAIT_KEYS) delete genes[k];
   for (const def of GENE_DEFS) {
     const v = genes[def.key];
     genes[def.key] = typeof v === 'number' && Number.isFinite(v) ? fit(def, v) : rng();

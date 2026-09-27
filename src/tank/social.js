@@ -1,13 +1,14 @@
 // 生き物どうしの交流と繁殖。
 // - 交流:ときどき2匹が近づいて、頭を向け合い、触角を触れ合わせる。回数は2匹の組み合わせごとに数えて保存する
-// - 繁殖:交流が MATE.MEETS 回たまった「準備ができた」2匹が、ときどき横に並んで寄り添い、しばらく体を重ねる。
-//   途中で邪魔されずに最後まで終わったら、tank.js が卵を産むかどうかを決める
+// - 繁殖:交流が MATE.MEETS 回たまった「準備ができた」2匹が、ときどき近づいて並び、輪になって回りながら昇って沈む
+//   (動きは breedDance.js)。途中で邪魔されずに最後まで終わったら、tank.js が卵を産むかどうかを決める
 // 水槽を開いている間だけ進む。調整値は lifeConfig.js の MEET・MATE・BREED。
 import { MEAL } from '../creature/creature.js';
-import { pauseBehavior, startSeek, stopSeek } from '../creature/behavior.js';
+import { pauseBehavior, startDance, startSeek, stopDance, stopSeek } from '../creature/behavior.js';
 import { DEPTH_SPAN } from '../creature/body.js';
 import { BREED, MATE, MEET } from '../creature/lifeConfig.js';
 import { clamp, lerp } from '../util/math.js';
+import { nestlePose, planDance, stepDance } from './breedDance.js';
 
 const between = ([a, b], rng) => lerp(a, b, rng());
 
@@ -21,14 +22,9 @@ function headGap(a, b) {
   return Math.hypot(a.x - b.x, (a.z - b.z) * DEPTH_SPAN);
 }
 
-// 寄り添うときの、それぞれの頭の行き先:2匹の真ん中から、奥行きを少しずらした所(片方が少し奥になる)
-function sideBySide(a, b) {
-  const x = clamp((a.x + b.x) / 2, 0.3, 0.7);
-  const z = (a.z + b.z) / 2;
-  const dz = BREED.SIDE / 2 / DEPTH_SPAN;
-  const front = a.z <= b.z ? a : b;
-  const spot = (c) => ({ x, z: clamp(z + (c === front ? -dz : dz), 0.04, 0.96) });
-  return [spot(a), spot(b)];
+// 頭から行き先までの距離(横幅と同じ尺度)
+function gapTo(c, spot) {
+  return Math.hypot(c.x - spot.x, (c.z - spot.z) * DEPTH_SPAN);
 }
 
 export class Social {
@@ -43,8 +39,8 @@ export class Social {
     // ここから下は保存しない
     this.timer = between(MEET.FIRST_WAIT, rng); // 次の交流を探し始めるまで(秒)
     this.breedTimer = between(BREED.FIRST_WAIT, rng); // 次の繁殖を探し始めるまで(秒)
-    this.approach = null; // 近づいている2匹 { kind: 'meet' | 'breed', a, b, time }
-    this.breeding = null; // 寄り添っている2匹 { a, b, t, bubble }
+    this.approach = null; // 近づいている2匹 { kind: 'meet' | 'breed', a, b, time, dance }
+    this.breeding = null; // 繁殖の動きの最中(breedDance.js の planDance)
   }
 
   count(a, b) {
@@ -89,15 +85,14 @@ export class Social {
     else this.timer = between(MEET.INTERVAL, this.rng);
   }
 
-  // 寄り添うのをやめる(準備ができた状態はそのまま)
+  // 繁殖の動きをやめて、ふだんの動きに戻る(準備ができた状態はそのまま。浮いていれば、ゆっくり降りる)
   stopBreeding() {
     const br = this.breeding;
     this.breeding = null;
     if (!br) return;
     for (const c of [br.a, br.b]) {
       c.breed = null;
-      // 邪魔されてやめたときは、止まっているのをほどく(エサに向かう・排泄で止まる、などはそのまま)
-      if (c.behavior.pause > 0 && !c.disturbed) c.behavior.pause = 0;
+      stopDance(c);
     }
     this.breedTimer = between(BREED.INTERVAL, this.rng);
   }
@@ -147,7 +142,7 @@ export class Social {
   }
 
   startApproach(kind, a, b) {
-    this.approach = { kind, a, b, time: 0 };
+    this.approach = { kind, a, b, time: 0, dance: kind === 'breed' ? planDance(a, b) : null };
     a.disturbed = false;
     b.disturbed = false;
     this.steer(this.approach, true);
@@ -162,8 +157,8 @@ export class Social {
       return null;
     }
     if (ap.kind === 'breed') {
-      if (headGap(ap.a, ap.b) < BREED.REACH) {
-        this.startBreeding(ap.a, ap.b);
+      if ([ap.a, ap.b].every((c) => gapTo(c, nestlePose(ap.dance, c)) < BREED.REACH)) {
+        this.startBreeding(ap.dance);
         return null;
       }
     } else if (headGap(ap.a, ap.b) < MEET.REACH) {
@@ -174,16 +169,14 @@ export class Social {
     return null;
   }
 
-  // 行き先を決める。交流:相手の頭の、こちら側に少し離れた所(頭が向かい合うように)/ 繁殖:2匹の真ん中に並ぶ所
+  // 行き先を決める。交流:相手の頭の、こちら側に少し離れた所(頭が向かい合うように)/ 繁殖:横腹を寄せて並ぶ所
   steer(ap, start = false) {
     const go = (c, spot) => {
       if (start || c.behavior.mode !== 'seek') startSeek(c, spot.x, spot.z);
-      else c.behavior.target = spot;
+      else c.behavior.target = { x: spot.x, z: spot.z };
     };
     if (ap.kind === 'breed') {
-      const [sa, sb] = sideBySide(ap.a, ap.b);
-      go(ap.a, sa);
-      go(ap.b, sb);
+      for (const c of [ap.a, ap.b]) go(c, nestlePose(ap.dance, c));
       return;
     }
     for (const [c, other] of [
@@ -217,49 +210,31 @@ export class Social {
     this.pairs[k] = (this.pairs[k] ?? 0) + 1;
   }
 
-  // 寄り添い始める:2匹とも止まって、体の揺れをそろえる
-  startBreeding(a, b) {
+  // 並び始める:ここから先の頭の位置・向き・高さは breedDance.js が決める
+  startBreeding(dance) {
     this.approach = null;
-    this.breeding = { a, b, t: 0, bubble: BREED.BUBBLE_EVERY * 0.5 };
+    this.breeding = dance;
     for (const [c, other] of [
-      [a, b],
-      [b, a],
+      [dance.a, dance.b],
+      [dance.b, dance.a],
     ]) {
       stopSeek(c);
-      pauseBehavior(c, BREED.SECONDS + 0.5);
-      c.breed = { partner: other, t: 0, seconds: BREED.SECONDS };
+      startDance(c);
+      c.breed = { partner: other, calm: 0 };
     }
-    b.phase = a.phase; // いっしょにゆっくり揺れる
   }
 
-  // 寄り添っている間:ゆっくり体をすべらせて重ねる。最後まで終わったら { type: 'bred' }
+  // 繁殖の動きを進める。底に着いて離れるところまで終わったら { type: 'bred' }
   updateBreeding(dt, creatures) {
     const br = this.breeding;
     if (!br) return null;
     const { a, b } = br;
-    const broken = [a, b].some((c) => !creatures.includes(c) || c.leaving || c.disturbed || c.meal.stage === MEAL.seeking);
+    const broken = [a, b].some((c) => !creatures.includes(c) || c.leaving || c.disturbed || c.meal.stage === MEAL.seeking || !c.breed);
     if (broken) {
       this.stopBreeding();
       return null;
     }
-    br.t += dt;
-    const [sa, sb] = sideBySide(a, b);
-    const k = 1 - Math.exp(-BREED.SLIDE * dt);
-    for (const [c, spot] of [
-      [a, sa],
-      [b, sb],
-    ]) {
-      c.x += (spot.x - c.x) * k;
-      c.z += (spot.z - c.z) * k;
-      c.breed.t = br.t;
-      c.behavior.pause = Math.max(c.behavior.pause, 0.1); // 最後まで止まったまま
-    }
-    br.bubble -= dt;
-    if (br.bubble <= 0) {
-      br.bubble = BREED.BUBBLE_EVERY * (0.7 + this.rng() * 0.6);
-      br.bubbled = true; // 描画側で小さな泡を出す(tank.js がイベントにする)
-    }
-    if (br.t < BREED.SECONDS) return null;
+    if (!stepDance(br, dt)) return null;
     this.stopBreeding();
     return { type: 'bred', a, b };
   }

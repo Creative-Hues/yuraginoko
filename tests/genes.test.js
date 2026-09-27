@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   GENE_DEFS,
   GENE_KEYS,
+  TRAIT_KEYS,
   TOUCH_DRIFT,
   applyTouchDrift,
   expressGenes,
@@ -12,8 +13,10 @@ import {
 import { makeRng } from '../src/util/random.js';
 
 describe('遺伝子', () => {
-  it('12項目あり、すべて 0〜1', () => {
-    expect(GENE_KEYS).toHaveLength(12);
+  it('環境で変わる遺伝子は10項目、特徴遺伝子は5項目。すべて 0〜1', () => {
+    expect(GENE_KEYS).toHaveLength(10);
+    expect(TRAIT_KEYS).toHaveLength(5);
+    expect(GENE_KEYS.filter((k) => TRAIT_KEYS.includes(k))).toEqual([]);
     const g = randomGenes(makeRng(42));
     for (const key of GENE_KEYS) {
       expect(g[key]).toBeGreaterThanOrEqual(0);
@@ -26,7 +29,7 @@ describe('遺伝子', () => {
   });
 
   it('揺らぎは指定の幅に収まり、時間で少しずつ変わる', () => {
-    const g = { ...randomGenes(makeRng(1)), bodyLength: 0.5, spikeCount: 0.5 };
+    const g = { ...randomGenes(makeRng(1)), bodyLength: 0.5, spikeLength: 0.5 };
     const seen = new Set();
     for (let t = 0; t < 300; t += 1.7) {
       const e = expressGenes(g, t, 1234);

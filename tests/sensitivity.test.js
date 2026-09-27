@@ -79,8 +79,8 @@ describe('環境の受けやすさ', () => {
     for (let s = 1; s < 100; s++) {
       const rng = makeRng(s);
       const child = makeChild(
-        { genes: randomGenes(rng), quirks: [], sensitivity: randomSensitivity(rng) },
-        { genes: randomGenes(rng), quirks: [], sensitivity: randomSensitivity(rng) },
+        { genes: randomGenes(rng), sensitivity: randomSensitivity(rng) },
+        { genes: randomGenes(rng), sensitivity: randomSensitivity(rng) },
         rng,
       );
       expectFits(child.sensitivity);

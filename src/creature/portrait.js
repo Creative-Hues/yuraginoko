@@ -26,14 +26,14 @@ function release() {
   scratch = null;
 }
 
-// data: { seed, genes, quirks, growth }(生き物の保存データや、親・標本の写し)
+// data: { seed, genes, traits, growth }(生き物の保存データや、親・標本の写し。特徴遺伝子の無い古いデータは genes と seed から)
 // w, h: 画像の大きさ(CSS px)。描けないときは null
 export function portrait(data, w = 240, h = 160) {
   if (!data?.genes) return null;
-  const key = JSON.stringify([w, h, data.seed, data.genes, data.quirks ?? [], data.growth ?? 1]);
+  const key = JSON.stringify([w, h, data.seed, data.genes, data.traits ?? null, data.growth ?? 1]);
   if (cache.has(key)) return cache.get(key);
 
-  const c = new Creature({ id: 'portrait', seed: Number(data.seed) >>> 0, genes: data.genes, quirks: data.quirks, growth: data.growth ?? 1, heading: 0 });
+  const c = new Creature({ id: 'portrait', seed: Number(data.seed) >>> 0, genes: data.genes, traits: data.traits, growth: data.growth ?? 1, heading: 0 });
   c.expressed = { ...c.genes }; // 揺らぎなしの、その瞬間の姿
   c.phase = 0.35;
   c.behavior.waveAmp = 0.03;

@@ -1,6 +1,8 @@
 import 'fake-indexeddb/auto';
 import { afterEach, describe, expect, it } from 'vitest';
-import { makeChild, normalizeQuirks } from '../src/creature/breeding.js';
+import { makeChild } from '../src/creature/breeding.js';
+import { randomTraits } from '../src/creature/traits.js';
+import { DANCE_SECONDS } from '../src/tank/breedDance.js';
 import { randomGenes } from '../src/creature/genes.js';
 import { BREED, EGG, GROW, MATE, MUTATION, TANK_CAPACITY } from '../src/creature/lifeConfig.js';
 import { Creature } from '../src/creature/creature.js';
@@ -35,46 +37,25 @@ function run(tank, seconds, until = () => false, dt = 1 / 30) {
 }
 
 describe('赤ちゃんの遺伝子', () => {
-  it('必ず1〜2項目が大きくずれる(遺伝子の大ずれか、新しい特徴)', () => {
+  it('環境で変わる遺伝子は、必ず1〜2項目が大きくずれる。特徴遺伝子の突然変異は多くても1つ', () => {
     for (let s = 1; s < 300; s++) {
       const rng = makeRng(s);
-      const a = { genes: randomGenes(rng), quirks: [] };
-      const b = { genes: randomGenes(rng), quirks: [] };
+      const a = { genes: randomGenes(rng), traits: randomTraits(rng) };
+      const b = { genes: randomGenes(rng), traits: randomTraits(rng) };
       const child = makeChild(a, b, rng);
-      expect(child.mutations.length).toBeGreaterThanOrEqual(MUTATION.COUNT[0]);
-      expect(child.mutations.length).toBeLessThanOrEqual(MUTATION.COUNT[1]);
-      for (const m of child.mutations) {
-        if (m.kind === 'gene') {
-          expect(Math.abs(m.delta)).toBeGreaterThanOrEqual(MUTATION.SHIFT[0]);
-          const v = child.genes[m.key];
-          expect(v).toBeGreaterThanOrEqual(0);
-          expect(v).toBeLessThanOrEqual(1);
-        } else {
-          expect(m.kind).toBe('quirk');
-        }
+      const genes = child.mutations.filter((m) => m.kind === 'gene');
+      expect(genes.length).toBeGreaterThanOrEqual(MUTATION.COUNT[0]);
+      expect(genes.length).toBeLessThanOrEqual(MUTATION.COUNT[1]);
+      for (const m of genes) {
+        expect(MUTATION.SHIFT_KEYS).toContain(m.key);
+        expect(Math.abs(m.delta)).toBeGreaterThanOrEqual(MUTATION.SHIFT[0]);
+        expect(child.genes[m.key]).toBeGreaterThanOrEqual(0);
+        expect(child.genes[m.key]).toBeLessThanOrEqual(1);
       }
-      expect(child.quirks.length).toBe(child.mutations.filter((m) => m.kind === 'quirk').length);
+      expect(child.mutations.filter((m) => m.kind === 'trait').length).toBeLessThanOrEqual(1);
+      expect(child.mutations.every((m) => m.kind === 'gene' || m.kind === 'trait')).toBe(true);
+      expect(child.quirks).toBeUndefined();
     }
-  });
-
-  it('親の特徴はおよそ半分受け継ぎ、数には上限がある', () => {
-    let inherited = 0;
-    const q = { type: 'notch', u: 0.5, size: 0.7, seed: 1 };
-    for (let s = 1; s < 400; s++) {
-      const rng = makeRng(s);
-      const child = makeChild({ genes: randomGenes(rng), quirks: [q] }, { genes: randomGenes(rng), quirks: [] }, rng);
-      if (child.quirks.some((c) => c.seed === 1)) inherited++;
-      expect(child.quirks.length).toBeLessThanOrEqual(MUTATION.MAX_QUIRKS);
-    }
-    expect(inherited).toBeGreaterThan(150);
-    expect(inherited).toBeLessThan(250);
-  });
-
-  it('壊れた特徴は読み込まない', () => {
-    expect(normalizeQuirks([{ type: 'nope' }, null, { type: 'sprout', form: 'x', u: 3 }])).toEqual([
-      { type: 'sprout', form: 'horn', u: 1, size: 0.8, seed: 0 },
-    ]);
-    expect(normalizeQuirks('x')).toEqual([]);
   });
 });
 
@@ -127,14 +108,40 @@ describe('交流と繁殖', () => {
     expect(loaded.readyToBreed(loaded.creatures[0])).toBe(true);
   });
 
-  it('準備ができた2匹は寄り添って体を重ね、最後まで終わると確率で卵を産む。産んだら回数は 0', () => {
+  it('準備ができた2匹は並んで輪になり、回りながら昇って沈み、底で離れてから確率で卵を産む。産んだら回数は 0', () => {
     const { tank, a, b, bred } = readyTank();
     tank.random = () => BREED.CHANCE - 0.01; // 当たり
     expect(run(tank, BREED.GIVE_UP, () => !!tank.social.breeding)).toBe(true);
     expect(a.breed?.partner).toBe(b);
     expect(b.breed?.partner).toBe(a);
     expect(a.meet).toBeNull(); // 交流(触角)とは別の動き
-    expect(run(tank, BREED.SECONDS + 1, () => tank.eggs.count === 1)).toBe(true);
+    const dance = tank.social.breeding;
+    // 並ぶ:頭としっぽが逆向き
+    run(tank, BREED.PHASES.nestle - 0.1);
+    expect(dance.phase).toBe('nestle');
+    expect(Math.cos(a.heading) * Math.cos(b.heading)).toBeLessThan(0);
+    // 昇って、真ん中あたりの高さで回る(輪の反対側にいて、2匹の体の波はそろっている)
+    run(tank, BREED.PHASES.rise + BREED.PHASES.hover / 2);
+    expect(dance.phase).toBe('hover');
+    expect(a.lift).toBeCloseTo(BREED.RISE_LIFT, 1);
+    expect(b.lift).toBeCloseTo(BREED.RISE_LIFT, 1);
+    expect((a.x - dance.cx) * (b.x - dance.cx) + (a.z - dance.cz) * (b.z - dance.cz) * 0.2).toBeLessThan(0);
+    expect(a.phase).toBe(b.phase);
+    expect(a.breed.calm).toBe(1);
+    expect(tank.eggs.count).toBe(0);
+    const zBefore = [a.z, b.z];
+    run(tank, BREED.PHASES.hover / 2 + BREED.PHASES.sink / 2);
+    expect(dance.phase).toBe('sink');
+    expect(Math.sign(a.z - b.z)).not.toBe(Math.sign(zBefore[0] - zBefore[1])); // 回って、手前と奥が入れ替わる
+    // 底に着いて離れたあとに産む
+    let liftAtEgg = null;
+    expect(
+      run(tank, DANCE_SECONDS, () => {
+        if (tank.eggs.count === 1) liftAtEgg = Math.max(a.lift, b.lift);
+        return tank.eggs.count === 1;
+      }),
+    ).toBe(true);
+    expect(liftAtEgg).toBeLessThan(0.05);
     expect(bred()).toBe(1);
     expect(a.breed).toBeNull();
     expect(tank.social.count(a, b)).toBe(0);
@@ -168,7 +175,7 @@ describe('交流と繁殖', () => {
   it('最後まで終わっても産まなかったときは、準備ができたまま次を待つ', () => {
     const { tank, a, b, bred } = readyTank();
     tank.random = () => BREED.CHANCE + 0.01; // 外れ
-    expect(run(tank, BREED.GIVE_UP + BREED.SECONDS + 1, () => bred() === 1)).toBe(true);
+    expect(run(tank, BREED.GIVE_UP + DANCE_SECONDS + 1, () => bred() === 1)).toBe(true);
     expect(tank.eggs.count).toBe(0);
     expect(tank.social.count(a, b)).toBe(MATE.MEETS);
     expect(tank.readyToBreed(a)).toBe(true);
@@ -185,7 +192,7 @@ describe('交流と繁殖', () => {
     expect(tank.social.breeding).toBeNull();
     expect(a.breed).toBeNull();
     expect(b.breed).toBeNull();
-    run(tank, BREED.SECONDS + 1);
+    run(tank, DANCE_SECONDS + 1);
     expect(bred()).toBe(0);
     expect(tank.eggs.count).toBe(0);
     expect(tank.readyToBreed(a)).toBe(true);
@@ -197,7 +204,7 @@ describe('交流と繁殖', () => {
     // 他の子は交流しないように
     for (const c of tank.creatures.slice(2)) c.growth = 0.99;
     tank.random = () => 0;
-    expect(run(tank, BREED.GIVE_UP + BREED.SECONDS + 1, () => tank.eggs.count === 1)).toBe(true);
+    expect(run(tank, BREED.GIVE_UP + DANCE_SECONDS + 1, () => tank.eggs.count === 1)).toBe(true);
     expect(tank.hasRoom).toBe(false);
     tank.eggs.list[0].progress = EGG.HATCH_SECONDS;
     tank.update(0.01, 0);
@@ -225,7 +232,7 @@ describe('交流と繁殖', () => {
   it('閉じていた間は、卵も成長も進まない', () => {
     const { tank } = readyTank();
     tank.random = () => 0;
-    run(tank, BREED.GIVE_UP + BREED.SECONDS + 1, () => tank.eggs.count === 1);
+    run(tank, BREED.GIVE_UP + DANCE_SECONDS + 1, () => tank.eggs.count === 1);
     expect(tank.eggs.count).toBe(1);
     const data = JSON.parse(JSON.stringify(tank.toData()));
     data.creatures[0].growth = 0.2;
@@ -292,7 +299,8 @@ describe('フェーズ4の保存', () => {
     expect(tank.env.soil).toBe('mud');
     expect(tank.creatures[0].genes.hue).toBe(0.3);
     expect(tank.creatures[0].growth).toBe(1);
-    expect(tank.creatures[0].quirks).toEqual([]);
+    expect(tank.creatures[0].quirks).toBeUndefined();
+    expect(Object.keys(tank.creatures[0].traits).sort()).toEqual(['antennaLength', 'blink', 'spikeCount', 'tailLength', 'wriggliness']);
     expect(tank.eggs.count).toBe(0);
     expect(tank.things.other).toBe(42);
     const again = tank.toData();

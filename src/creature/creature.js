@@ -14,7 +14,7 @@ import { createBehavior, pauseBehavior, startSeek, stopSeek, updateBehavior } fr
 import { bodyPoints, createBody, updateBody } from './body.js';
 import { makeId, makeRng, randomSeed } from '../util/random.js';
 import { clamp, lerp, smoothstep } from '../util/math.js';
-import { normalizeQuirks } from './breeding.js';
+import { normalizeTraits, randomTraits } from './traits.js';
 import { normalizeSensitivity, randomSensitivity } from './sensitivity.js';
 import { GROW } from './lifeConfig.js';
 
@@ -64,7 +64,8 @@ export class Creature {
     this.meal = loadMeal(data.meal);
     // 生まれてからの育ち具合(0 = 生まれたて〜1 = 大人)。古いデータには無いので、大人
     this.growth = typeof data.growth === 'number' && Number.isFinite(data.growth) ? clamp(data.growth) : 1;
-    this.quirks = normalizeQuirks(data.quirks); // 変異で生えた特徴(にじみ・欠け・余分な突起)
+    // 特徴遺伝子(生まれつき)。持っていない古いデータは、genes の値と seed から引き継ぐ。前の「にじみ・欠け・余分な突起」は読み込まない
+    this.traits = normalizeTraits(data.traits, data.genes, this.seed);
     this.mutations = Array.isArray(data.mutations) ? data.mutations.filter((m) => m && typeof m === 'object').map((m) => ({ ...m })) : [];
     // 両親の写し(わかる場合)。標本画面で親の姿を出す
     this.parents = Array.isArray(data.parents) ? data.parents.filter((p) => p && typeof p === 'object' && p.genes).slice(0, 2) : [];
@@ -109,6 +110,7 @@ export class Creature {
       seed,
       genes: randomGenes(makeRng(seed)),
       sensitivity: randomSensitivity(Math.random),
+      traits: randomTraits(Math.random),
       x: opts.x ?? 0.3 + Math.random() * 0.4,
       z: opts.z ?? Math.random(),
       heading: Math.random() < 0.5 ? Math.PI : 0,
@@ -116,13 +118,13 @@ export class Creature {
   }
 
   // 交配で生まれた赤ちゃん
-  static born({ genes, quirks, mutations, parents, sensitivity, x, z, heading }) {
+  static born({ genes, traits, mutations, parents, sensitivity, x, z, heading }) {
     return new Creature({
       id: makeId(),
       seed: randomSeed(),
       genes,
       sensitivity,
-      quirks,
+      traits,
       mutations,
       parents,
       bornAt: Date.now(),
@@ -313,9 +315,9 @@ export class Creature {
       heading: this.heading,
       meal: this.meal.drift ? { ...this.meal, drift: { ...this.meal.drift } } : { ...this.meal },
       growth: this.growth,
-      quirks: this.quirks.map((q) => ({ ...q })),
+      traits: { ...this.traits },
       mutations: this.mutations.map((m) => ({ ...m })),
-      parents: this.parents.map((p) => ({ ...p, genes: { ...p.genes }, quirks: (p.quirks ?? []).map((q) => ({ ...q })) })),
+      parents: this.parents.map((p) => ({ id: p.id, seed: p.seed, genes: { ...p.genes }, traits: { ...(p.traits ?? {}) }, growth: p.growth })),
       bornAt: this.bornAt,
       sensitivity: { ...this.sensitivity },
     };

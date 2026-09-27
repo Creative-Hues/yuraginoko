@@ -137,16 +137,28 @@ describe('環境', () => {
     expect(c.genes.glow).toBeCloseTo(0.215, 6);
   });
 
-  it('水流が強いと、うねりやすく浮きやすくなる', () => {
+  it('水流が強いと、浮きやすくなる(泳ぎ方の激しさは特徴遺伝子なので変わらない)', () => {
     const tank = fromData(v2());
     const c = tank.creatures[0];
-    c.genes.wriggliness = 0.5;
     c.genes.floatiness = 0.5;
+    const traits = { ...c.traits };
     tank.setEnv({ current: { strength: 1, dir: -1 } });
     tick(tank, I);
     c.finishShift();
-    expect(c.genes.wriggliness).toBeCloseTo(0.515, 6);
     expect(c.genes.floatiness).toBeCloseTo(0.515, 6);
+    expect(c.genes.wriggliness).toBeUndefined();
+    expect(c.traits).toEqual(traits);
+  });
+
+  it('特徴遺伝子は、どの環境でも変わらない', () => {
+    const tank = fromData(v2());
+    const c = tank.creatures[0];
+    const traits = { ...c.traits };
+    tank.setEnv({ soil: 'glowSand', light: { color: 'pink', brightness: 0 }, current: { strength: 1, dir: 1 } });
+    for (const kind of ['toge', 'hira', 'nobi', 'maru', 'glowCap']) tank.plant(kind, c.x, c.z).growth = 2;
+    tick(tank, I * 5);
+    c.finishShift();
+    expect(c.traits).toEqual(traits);
   });
 
   it('受けやすさで効き方が変わる(受けやすい 1.5倍・受けにくい 0.2倍)。エサは全員同じ', () => {
@@ -192,23 +204,24 @@ describe('植物', () => {
     const tank = fromData(v2());
     const c = tank.creatures[0];
     const m = c.points[Math.floor(c.points.length / 2)];
+    c.genes.spikeLength = 0.4;
     const p = tank.plant('toge', m.x, m.z);
     tick(tank, I);
     c.finishShift();
-    expect(c.genes.spikeCount).toBe(0.4); // 芽のまま
+    expect(c.genes.spikeLength).toBe(0.4); // 芽のまま
     p.growth = 1;
     tank.plants.grow = () => false; // 育ち具合を固定して確かめる
     tick(tank, I);
     c.finishShift();
-    expect(c.genes.spikeCount).toBeCloseTo(0.415, 6);
+    expect(c.genes.spikeLength).toBeCloseTo(0.415, 6);
     p.growth = 2;
     tick(tank, I);
     c.finishShift();
-    expect(c.genes.spikeCount).toBeCloseTo(0.4375, 6);
+    expect(c.genes.spikeLength).toBeCloseTo(0.4375, 6);
     tank.movePlant(p, m.x > 0.5 ? 0.04 : 0.96, m.z);
     tick(tank, I);
     c.finishShift();
-    expect(c.genes.spikeCount).toBeCloseTo(0.4375, 6);
+    expect(c.genes.spikeLength).toBeCloseTo(0.4375, 6);
   });
 
   it('芽 → 小さい → 大きい → とても大きい と育ち、栄養があると早い', () => {

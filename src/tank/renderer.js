@@ -16,7 +16,7 @@ import { Bubbles, Particles, Ripples, Sparkles } from './effects.js';
 import { PLANT_FADE } from './envConfig.js';
 import { AlgaeView } from './algae.js';
 import { Farewells } from './farewell.js';
-import { EGG, MEET } from '../creature/lifeConfig.js';
+import { EGG, MEET, TRAITS } from '../creature/lifeConfig.js';
 
 const TAU = Math.PI * 2;
 const MAX_DPR = 2;
@@ -422,6 +422,9 @@ export class TankRenderer {
 
     const current = this.tank.env.current;
     const k = Math.min(1, dt * PLANT_FADE.SPEED);
+    // 点滅する光模様の見え方:暗い光ではくっきり、明るい光では控えめ(遺伝子の値は変わらない)
+    const { dark, bright } = lightLook(this.tank.env);
+    this.blinkLook = lerp(1, TRAITS.BLINK.DARK_LOOK, dark) * lerp(1, TRAITS.BLINK.BRIGHT_LOOK, bright);
     for (const item of list) {
       if (item.egg) {
         this.tank.eggs.draw(this.ctx, this, item.egg, this.time);
@@ -555,7 +558,7 @@ export class TankRenderer {
     octx.setTransform(1, 0, 0, 1, 0, 0);
     octx.clearRect(0, 0, c.canvas.width, c.canvas.height);
     octx.setTransform(px, 0, 0, px, -bx * px, -by * px);
-    const spine = drawCreature(octx, c.scratch, c, pts, L, c.clock, px, detail);
+    const spine = drawCreature(octx, c.scratch, c, pts, L, c.clock, px, detail, this.blinkLook ?? 1);
 
     // 奥ほど水の色に少し沈める
     if (z > 0.05) {

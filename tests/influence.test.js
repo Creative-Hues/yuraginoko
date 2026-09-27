@@ -20,7 +20,7 @@ describe('影響の一覧', () => {
   });
 
   it('文章は効果の定義から作り、同じ文章はまとめる', () => {
-    expect(rowWith('植物', 'トゲ草').text).toBe('突起が増える');
+    expect(rowWith('植物', 'トゲ草').text).toBe('突起が長くなる');
     expect(rowWith('植物', 'ひらひら葉').text).toBe('縁が波打つ');
     expect(rowWith('植物', 'のびる藻').text).toBe('体が細長くなる');
     expect(rowWith('植物', 'まるい苔').text).toBe('体がずんぐりする');
@@ -39,7 +39,7 @@ describe('影響の一覧', () => {
     expect(rowWith('光の色', '青').text).toBe('体の色がその色に寄る');
     expect(rowWith('明るさ', '暗い').text).toBe('透けやすくなる、光り方が強くなる');
     expect(rowWith('明るさ', '明るい').text).toBe('透けにくくなる、光り方が弱くなる');
-    expect(section('水流').rows[0].text).toBe('うねりやすくなる、浮きやすくなる');
+    expect(section('水流').rows[0].text).toBe('浮きやすくなる');
   });
 
   it('言葉のない効果は「変化なし」', () => {
@@ -50,12 +50,12 @@ describe('影響の一覧', () => {
 
 describe('編集モードの一言', () => {
   it('選んだものの効き方を出す', () => {
-    expect(plantHint('toge')).toBe('トゲ草:突起が増える');
+    expect(plantHint('toge')).toBe('トゲ草:突起が長くなる');
     expect(soilHint('glowSand')).toBe('光る砂:光り方が強くなる');
     expect(lightHint({ light: { color: 'blue', brightness: 0.5 } })).toBe('青:体の色がその色に寄る');
     expect(lightHint({ light: { color: 'usual', brightness: 0 } })).toBe(`いつもの:${NO_EFFECT_TEXT} / 暗い:透けやすくなる、光り方が強くなる`);
     expect(currentHint({ current: { strength: 0 } })).toBe(`水流:${NO_EFFECT_TEXT}`);
-    expect(currentHint({ current: { strength: 1 } })).toBe('水流:うねりやすくなる、浮きやすくなる');
+    expect(currentHint({ current: { strength: 1 } })).toBe('水流:浮きやすくなる');
   });
 });
 

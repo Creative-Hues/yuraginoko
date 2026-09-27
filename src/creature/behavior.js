@@ -4,12 +4,14 @@
 // - float   (浮く)  : ときどき、ふわっと浮いてゆっくり沈む
 // - wriggle (うねる): まれに、すばやく体を波打たせて進む
 // - seek    (向かう): エサなど、決まった場所へまっすぐ向かう(startSeek で始め、stopSeek で終える)
+// - dance   (繁殖)  : 頭の位置・向き・高さは social.js が決める。ここでは体の波だけを進める(startDance / stopDance)
 // 向きを変えるときは、頭から先に曲がる Uターン(turn)をする。
 //
 // c.x, c.z は頭の位置(x: 左右 0〜1、z: 0 = 手前〜1 = 奥)、c.heading は頭の向き。
 // c.pace は動きの速さの倍率(藻が多いときや、観察中はゆっくり。ふだん = 1)。
 import { clamp, lerp, smoothstep } from '../util/math.js';
 import { DEPTH_SPAN, angleDiff, normalizeAngle } from './body.js';
+import { BREED } from './lifeConfig.js';
 
 // 頭がここより外へ向かって進んだら折り返す(体が水槽からはみ出さないように)
 const X_TURN_MIN = 0.28;
@@ -24,6 +26,7 @@ const WAVE = {
   float: { amp: 0.07, speed: 0.7 },
   wriggle: { amp: 0.2, speed: 5.5 },
   seek: { amp: 0.04, speed: 1.2 },
+  dance: { amp: BREED.WAVE_AMP, speed: BREED.WAVE_SPEED },
 };
 
 const SEEK_REACH = 0.02; // 頭がこれより近づいたら、着いたとする
@@ -88,6 +91,22 @@ export function startSeek(c, x, z) {
   b.target = { x, z };
 }
 
+// 繁殖の動きを始める(位置・向き・高さは外から動かす)
+export function startDance(c) {
+  const b = c.behavior;
+  b.mode = 'dance';
+  b.time = 0;
+  b.turn = null;
+  b.target = null;
+  b.pause = 0;
+  b.speed = 0;
+}
+
+// 繁殖の動きをやめて、ふだんの這う動きに戻る(浮いていれば、ゆっくり底へ降りる)
+export function stopDance(c) {
+  if (c.behavior.mode === 'dance') enter(c, 'crawl', c.expressed ?? {});
+}
+
 export function stopSeek(c) {
   const b = c.behavior;
   b.target = null;
@@ -120,13 +139,19 @@ export function updateBehavior(c, g, dt) {
   }
 
   b.time += dt;
+  // 繁殖中:体の波だけを進める(2匹の波は social.js でそろえる)
+  if (b.mode === 'dance') {
+    b.waveAmp += (WAVE.dance.amp - b.waveAmp) * Math.min(1, dt * 2);
+    c.phase += dt * WAVE.dance.speed;
+    return;
+  }
   const seeking = b.mode === 'seek';
 
   // 次の行動へ(ゆっくりのときは、うねったり浮いたりも少なくなる)
   if (b.mode === 'crawl' || b.mode === 'rest') {
     const quiet = pace * pace;
     const floatChance = (0.004 + g.floatiness * 0.045) * dt * quiet;
-    const wriggleChance = (0.001 + g.wriggliness * 0.012) * dt * quiet;
+    const wriggleChance = (0.001 + (c.traits?.wriggliness ?? 0.5) * 0.012) * dt * quiet; // 泳ぎ方の激しさ(特徴遺伝子)
     const r = Math.random();
     if (r < wriggleChance) enter(c, 'wriggle', g);
     else if (r < wriggleChance + floatChance) enter(c, 'float', g);

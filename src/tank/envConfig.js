@@ -68,7 +68,7 @@ export const PLANT_FADE = {
 // - colors: [主な色, 2つ目の色]
 // - plantable: true なら編集モードで植えられる / fromFood: そのエサの排泄物から勝手に生える
 export const PLANTS = {
-  toge: { label: 'トゲ草', colors: ['#3de8a0', '#1d9e7a'], plantable: true, effect: { up: { spikeCount: 0.85 } } },
+  toge: { label: 'トゲ草', colors: ['#3de8a0', '#1d9e7a'], plantable: true, effect: { up: { spikeLength: 0.85 } } },
   hira: { label: 'ひらひら葉', colors: ['#ff6fcf', '#c23a9a'], plantable: true, effect: { up: { edgeRuffle: 0.85 } } },
   nobi: { label: 'のびる藻', colors: ['#a6f03d', '#5f9e1d'], plantable: true, effect: { down: { bodyLength: 0.15 } } },
   maru: { label: 'まるい苔', colors: ['#6fd35a', '#3a8a3a'], plantable: true, effect: { up: { bodyLength: 0.85 } } },
@@ -155,7 +155,7 @@ export const LIGHT_BRIGHTNESS = {
 
 // ---- 水流 ----
 // 強さ 0〜1。強いほど効く。label: 一覧での名前、name: 観察中の名前
-export const CURRENT_EFFECT = { up: { wriggliness: 0.85, floatiness: 0.8 } };
+export const CURRENT_EFFECT = { up: { floatiness: 0.8 } };
 export const CURRENT_NAMES = { label: '強い', name: '水の流れ' };
 export const CURRENT_LOOK = {
   PARTICLE_SPEED: 0.06, // 強さ 1 のとき、ただよう粒が流れる速さ(画面の幅/秒)
@@ -165,10 +165,10 @@ export const CURRENT_LOOK = {
 
 // ---- 影響の言葉 ----
 // 「影響の一覧」と、編集・観察中の一言は、ここと上の effect の定義から作る(src/tank/influence.js)。
-// 植物や土を増やしても、effect に使った「遺伝子と向き」の言葉がここにあれば、一覧に自動で並ぶ
+// 植物や土を増やしても、effect に使った「遺伝子と向き」の言葉がここにあれば、一覧に自動で並ぶ。
+// effect に使えるのは、環境で変わる遺伝子(genes.js の GENE_DEFS)だけ。特徴遺伝子(TRAIT_DEFS)は環境では変わらない
 export const EFFECT_WORDS = {
   bodyLength: { up: '体がずんぐりする', down: '体が細長くなる' },
-  spikeCount: { up: '突起が増える', down: '突起が減る' },
   spikeLength: { up: '突起が長くなる', down: '突起が短くなる' },
   edgeRuffle: { up: '縁が波打つ', down: '縁がまっすぐになる' },
   hue: { toward: '体の色がその色に寄る' },
@@ -178,7 +178,6 @@ export const EFFECT_WORDS = {
   glow: { up: '光り方が強くなる', down: '光り方が弱くなる' },
   crawlSpeed: { up: '這うのが速くなる', down: '這うのがゆっくりになる' },
   floatiness: { up: '浮きやすくなる', down: '浮きにくくなる' },
-  wriggliness: { up: 'うねりやすくなる', down: 'うねりにくくなる' },
 };
 export const PATTERN_NAMES = { spots: '斑点', stripes: 'しま', net: '網目', gradient: 'グラデーション' };
 export const NO_EFFECT_TEXT = '変化なし';

@@ -3,6 +3,7 @@
 import { el } from './dom.js';
 import { portrait, portraitColor } from '../creature/portrait.js';
 import { normalizeSensitivity, sensitivityLines } from '../creature/sensitivity.js';
+import { normalizeTraits, traitLines } from '../creature/traits.js';
 
 function crystal(data, w, h, extraClass = '') {
   const url = portrait(data, w, h);
@@ -51,6 +52,13 @@ export function renderSpecimenDetail(root, { specimen: s, onEdit, onBack }) {
     ...sensitivityLines(normalizeSensitivity(s.creature?.sensitivity, s.creature?.seed)).map((text) =>
       el('p', { class: 'specimen-sensitivity', text }),
     ),
+    // 生まれつきの特徴(特徴遺伝子。古い標本は、その子の genes と seed から出す)
+    el('p', {
+      class: 'specimen-sensitivity',
+      text: `生まれつきの特徴:${traitLines(normalizeTraits(s.creature?.traits, s.creature?.genes, s.creature?.seed))
+        .map((l) => `${l.label} ${l.text}`)
+        .join(' / ')}`,
+    }),
     parents.length
       ? el('div', { class: 'parents' }, [
           el('span', { class: 'field-label', text: '親' }),

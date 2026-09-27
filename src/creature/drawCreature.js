@@ -7,13 +7,18 @@
 import { patternMix } from './genes.js';
 import { drawDigestEffect } from './digestEffects.js';
 import { MEAL } from './creature.js';
-import { drawQuirksBehind, drawQuirksOver } from './quirks.js';
+import { BREED, TRAITS } from './lifeConfig.js';
 import { clamp, lerp, smoothstep } from '../util/math.js';
 
 const TAU = Math.PI * 2;
 const OUTLINE_SAMPLES = 44;
 
 // 個体ごとに決まった「ばらつき」(0〜1)。突起や斑点の位置に使う
+// 尾(しっぽ側の細い部分)の長さ:体の場所 u(0 = しっぽ〜1 = 頭)で、ここまでが尾。体全体の長さは変えない
+function tailSpan(c) {
+  return lerp(0.06, 0.3, c.traits?.tailLength ?? 0.3);
+}
+
 function hash(seed, i) {
   const s = Math.sin(seed * 0.0001 + i * 12.9898) * 43758.5453;
   return s - Math.floor(s);
@@ -30,11 +35,13 @@ function buildSpine(c, pts, L, bodyH, t) {
   const swell = 1 + 0.12 * smoothstep(tc.cringe);
   const n = pts.length;
   const spine = new Array(n);
+  const tailU = tailSpan(c);
   for (let i = 0; i < n; i++) {
     const u = i / (n - 1); // 0 = しっぽ、1 = 頭
     const p = pts[i];
     const env = 0.35 + 0.65 * (1 - u);
-    const prof = Math.pow(Math.sin(Math.PI * clamp(u * 0.96 + 0.02)), 0.6) * lerp(0.45, 1, smoothstep(u * 1.4));
+    const tailK = u < tailU ? lerp(0.3, 1, smoothstep(u / tailU)) : 1; // 尾は細く
+    const prof = Math.pow(Math.sin(Math.PI * clamp(u * 0.96 + 0.02)), 0.6) * lerp(0.45, 1, smoothstep(u * 1.4)) * tailK;
     const h = bodyH * p.s * swell;
     // 撫でた場所から広がる、ゆるい波
     const du = Math.abs(u - tc.waveOrigin);
@@ -193,18 +200,20 @@ function drawPattern(ctx, type, spine, c, L, bodyH, color, alpha) {
 
 // 突起(背中のひらひら)の形を計算する
 function spikeShapes(c, spine, g, L, t) {
-  const n = Math.round(g.spikeCount * 22);
+  const count = c.traits?.spikeCount ?? 0.5; // 突起の数は特徴遺伝子(生まれつき)
+  const n = Math.round(count * 22);
+  const from = Math.max(0.12, tailSpan(c)); // 尾には生えない
   const shrink = 1 - 0.65 * clamp(c.touch.shrink, -0.25, 1);
   const shapes = [];
   for (let j = 0; j < n; j++) {
     const h1 = hash(c.seed, 100 + j);
     const h2 = hash(c.seed, 200 + j);
-    const u = lerp(0.12, 0.84, (j + 0.5) / n) + (h1 - 0.5) * 0.03;
+    const u = lerp(from, 0.84, (j + 0.5) / n) + (h1 - 0.5) * 0.03;
     const base = bodyPoint(spine, u, -0.9);
     const hx = tangent(spine, u).x; // 頭の向き(画面の左右)
     const ends = 0.55 + 0.45 * Math.sin(Math.PI * u);
     const len = L * (0.05 + 0.42 * g.spikeLength) * (0.75 + 0.5 * h2) * ends * shrink;
-    const baseW = L * lerp(0.075, 0.036, g.spikeCount) * lerp(0.85, 1.25, h1);
+    const baseW = L * lerp(0.075, 0.036, count) * lerp(0.85, 1.25, h1);
     const sway = Math.sin(t * 1.1 + j * 0.9 + c.phase * 0.6) * (0.08 + 0.3 * g.spikeLength);
     // しっぽ側へなびく
     const ang = -Math.PI / 2 - hx * (0.3 + 0.35 * (1 - u)) + sway;
@@ -290,9 +299,10 @@ function drawDetail(ctx, c, spine, spikes, bodyPath, bodyH, Ls, lw, H1, H2, body
  * @param t        時間(秒)
  * @param pixelScale  shadowBlur 用の拡大率(shadowBlur は座標変換の影響を受けないため)
  * @param detail   観察モードで寄ったときの、細かい模様の濃さ(0〜1)
+ * @param blinkLook 点滅する光模様の見え方の明るさ(光の環境で変わる。遺伝子の値は変わらない)
  * @returns 背骨(当たり判定用)
  */
-export function drawCreature(ctx, scratch, c, pts, L, t, pixelScale = 1, detail = 0) {
+export function drawCreature(ctx, scratch, c, pts, L, t, pixelScale = 1, detail = 0, blinkLook = 1) {
   const g = c.expressed;
   const tc = c.touch;
   const H1 = g.hue * 360;
@@ -323,10 +333,6 @@ export function drawCreature(ctx, scratch, c, pts, L, t, pixelScale = 1, detail 
   const skirtPath = bodyShape(spine, skirtBase);
   const spikes = spikeShapes(c, spine, g, Ls, t);
   const headDir = tangent(spine, 0.95).x;
-  const quirks = c.quirks ?? [];
-  const qb = quirks.length
-    ? { point: (u, v) => bodyPoint(spine, u, v), tangent: (u) => tangent(spine, u), path: bodyPath, Ls, bodyH: bodyH * sAvg, lw, H1, H2, bodyA, outline, t }
-    : null;
 
   ctx.lineJoin = 'round';
 
@@ -347,7 +353,7 @@ export function drawCreature(ctx, scratch, c, pts, L, t, pixelScale = 1, detail 
   drawOutline(ctx, scratch, skirtPath, bodyShape(spine, { ...skirtBase, grow: skirtBase.grow + lw * 0.6 }), `hsla(${H1}, 80%, 7%, ${lineA * 0.6})`);
 
   // エラ(しっぽ側の小さな房)
-  const gill = bodyPoint(spine, 0.2, -0.8);
+  const gill = bodyPoint(spine, Math.max(0.2, tailSpan(c) + 0.04), -0.8);
   const gillShrink = 1 - 0.5 * clamp(tc.shrink, -0.25, 1);
   for (let i = 0; i < 5; i++) {
     const a = -Math.PI / 2 - headDir * 0.2 + (i - 2) * 0.35 + Math.sin(t * 1.3 + i) * 0.08;
@@ -372,9 +378,6 @@ export function drawCreature(ctx, scratch, c, pts, L, t, pixelScale = 1, detail 
     ctx.lineWidth = lw * 0.5;
     ctx.stroke();
   }
-
-  // 変異で生えた余分な突起(根元は体に隠れる)
-  if (qb) drawQuirksBehind(ctx, quirks, qb);
 
   // 体
   ctx.fillStyle = `hsla(${H1}, 100%, 55%, ${bodyA})`;
@@ -413,19 +416,19 @@ export function drawCreature(ctx, scratch, c, pts, L, t, pixelScale = 1, detail 
   // 輪郭
   drawOutline(ctx, scratch, bodyPath, bodyShape(spine, { ...bodyBase, grow: lw }), outline);
 
-  // 変異の欠けとにじみ
-  if (qb) drawQuirksOver(ctx, quirks, qb);
-
-  // 触角(頭の2本)。弾くと少し引っ込む。ほかの子と触れ合っている間は、相手のほうへ伸ばす
+  // 触角(頭の2本)。長さは特徴遺伝子。弾くと少し引っ込む。ほかの子と触れ合っている間は、相手のほうへ伸ばす。
+  // 繁殖で回っている間は、少し下げて落ち着いた様子に
   const meet = c.meet ? Math.pow(Math.sin(Math.PI * clamp(c.meet.t / c.meet.seconds)), 0.6) : 0;
-  const hornLen = Ls * 0.15 * (1 - 0.45 * clamp(tc.shrink, -0.25, 1)) * (1 + 0.55 * meet);
+  const calm = c.breed?.calm ?? 0;
+  const hornLen =
+    Ls * lerp(0.08, 0.24, c.traits?.antennaLength ?? 0.45) * (1 - 0.45 * clamp(tc.shrink, -0.25, 1)) * (1 + 0.55 * meet) * (1 - 0.15 * calm);
   const hornTips = [];
   for (const [u, lean] of [
     [0.86, 0.35],
     [0.92, 0.65],
   ]) {
     const b = bodyPoint(spine, u, -0.85);
-    const a = -Math.PI / 2 + headDir * (lean + 0.85 * meet) + Math.sin(t * (0.8 + 2.2 * meet) + u * 9) * 0.1;
+    const a = -Math.PI / 2 + headDir * (lean + 0.85 * meet + BREED.HORN_DROP * calm) + Math.sin(t * (0.8 + 2.2 * meet) * (1 - 0.5 * calm) + u * 9) * 0.1;
     const tip = { x: b.x + Math.cos(a) * hornLen, y: b.y + Math.sin(a) * hornLen };
     hornTips.push(tip);
     outlinedLine(ctx, b, tip, Ls * 0.035, `hsla(${H2}, 100%, 62%, ${Math.max(bodyA, 0.6)})`, outline, lw * 0.6);
@@ -472,6 +475,25 @@ export function drawCreature(ctx, scratch, c, pts, L, t, pixelScale = 1, detail 
       ctx.beginPath();
       ctx.arc(s.tip.x, s.tip.y, Math.max(1.2, s.w * 0.45), 0, TAU);
       ctx.fill();
+    }
+  }
+  // 点滅する光模様:体の側面に並んだ小さな光の点が、1つずつずれながらゆっくり点滅する
+  const blink = c.traits?.blink ?? 0;
+  if (blink >= TRAITS.BLINK.HAS && blinkLook > 0) {
+    const count = 5 + Math.round(blink * 5);
+    const from = tailSpan(c) + 0.06;
+    const r = Math.max(0.8, bodyH * sAvg * lerp(0.05, 0.075, blink));
+    for (let i = 0; i < count; i++) {
+      const on = Math.pow(0.5 + 0.5 * Math.sin(t * 1.1 - i * 0.8 + c.seed), 2);
+      const a = clamp(lerp(0.35, 0.9, blink) * blinkLook * on * Math.max(bodyA, 0.5));
+      if (a < 0.02) continue;
+      const p = bodyPoint(spine, lerp(from, 0.82, (i + 0.5) / count), -0.05);
+      const rg = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r * 3);
+      rg.addColorStop(0, `hsla(${H2}, 100%, 88%, ${a})`);
+      rg.addColorStop(0.35, `hsla(${H2}, 100%, 72%, ${a * 0.5})`);
+      rg.addColorStop(1, `hsla(${H2}, 100%, 65%, 0)`);
+      ctx.fillStyle = rg;
+      ctx.fillRect(p.x - r * 3, p.y - r * 3, r * 6, r * 6);
     }
   }
   ctx.restore();

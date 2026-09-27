@@ -19,8 +19,8 @@ import { BREED, EGG, GROW, TANK_CAPACITY } from '../creature/lifeConfig.js';
 // - 2: lastSeenAt(最後に見ていた時刻)と things.algae(藻)、生き物ごとの meal(食事の段階)を追加
 // - 3: env(土・光・水流)と things.plants(植物)、things.soil(底の栄養)を追加
 // - 4: id・name・createdAt(1人が複数の水槽を持てるように)、social(交流の回数)、eggs(卵)、
-//      生き物ごとの growth・quirks・mutations・parents・bornAt を追加
-//   (版はそのままで、生き物ごとの sensitivity(環境の受けやすさ)を追加。無いデータは seed から決める)
+//      生き物ごとの growth・mutations・parents・bornAt を追加(quirks は後になくした。古いデータにあっても読み込まない)
+//   (版はそのままで、生き物ごとの sensitivity(環境の受けやすさ)と traits(特徴遺伝子)を追加。無いデータは genes と seed から決める)
 export const TANK_DATA_VERSION = 4;
 
 const OBSERVED_PACE = 0.6; // 観察中の1匹は、画面から逃げにくいよう少しゆっくり

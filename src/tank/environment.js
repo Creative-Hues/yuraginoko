@@ -20,7 +20,9 @@ import {
 import { plantStage } from './plants.js';
 
 const WRAP = Object.fromEntries(GENE_DEFS.map((d) => [d.key, !!d.wrap]));
-const GENE_INDEX = Object.fromEntries(GENE_DEFS.map((d, i) => [d.key, i]));
+// 目標のずれを決める番号。遺伝子の並びが変わっても今いる生き物の目標が変わらないように、前の並び(12項目)のまま使う
+const JITTER_ORDER = ['bodyLength', 'spikeCount', 'spikeLength', 'edgeRuffle', 'hue', 'hue2', 'pattern', 'translucency', 'glow', 'crawlSpeed', 'floatiness', 'wriggliness'];
+const GENE_INDEX = Object.fromEntries(JITTER_ORDER.map((k, i) => [k, i]));
 
 function num(v, fallback, min = 0, max = 1) {
   return typeof v === 'number' && Number.isFinite(v) ? clamp(v, min, max) : fallback;

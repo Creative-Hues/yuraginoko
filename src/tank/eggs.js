@@ -66,7 +66,7 @@ export class Eggs {
     return this.list.length;
   }
 
-  // x, z: 砂の上の位置、child: 生まれる子 { genes, quirks, mutations, parents }
+  // x, z: 砂の上の位置、child: 生まれる子 { genes, traits, mutations, parents, sensitivity }
   lay(x, z, mother, child) {
     const egg = {
       id: makeId(),
