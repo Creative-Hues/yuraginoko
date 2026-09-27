@@ -1,8 +1,8 @@
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
-// GitHub Pages の公開先(https://creative-hues.github.io/aquarium-game/)に合わせる
-const base = '/aquarium-game/';
+// GitHub Pages の公開先(https://creative-hues.github.io/yuraginoko/)に合わせる
+const base = '/yuraginoko/';
 
 export default defineConfig({
   base,
@@ -12,8 +12,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'icon.svg', 'apple-touch-icon-180x180.png'],
       manifest: {
-        name: 'ちいさな水槽',
-        short_name: '水槽',
+        name: 'ゆらぎのこ',
+        short_name: 'ゆらぎのこ',
         description: 'ひとりひとりの小さな水槽で、ふしぎな生き物をながめるアプリ',
         lang: 'ja',
         display: 'standalone',

@@ -1,12 +1,14 @@
 // データの書き出し・読み込み(公開版への引っ越し・機種変更の控え)。DB には触れず、ファイルの形だけを扱う。
 //
 // ファイルの形
-// { app: 'chiisana-suiso', version, dbVersion, exportedAt, personas: [...], aquaria: [...], specimens: [...], moments: [...], requests: [...] }
+// { app: 'yuraginoko', version, dbVersion, exportedAt, personas: [...], aquaria: [...], specimens: [...], moments: [...], requests: [...] }
 // レコードは DB の中身そのまま。水槽の古い形は、今の保存データと同じく、開いたときに Tank.fromData が変換する。
 //
 // ファイルの形が変わったら BACKUP_VERSION を上げて、migrate() に手順を追加する。
 // - 1: はじめの形
-export const BACKUP_APP = 'chiisana-suiso';
+export const BACKUP_APP = 'yuraginoko';
+// 前のアプリ名(ちいさな水槽)のときに書き出したファイルも読み込む
+const OLD_APPS = ['chiisana-suiso'];
 export const BACKUP_VERSION = 1;
 
 // 書き出すストア(フェーズ3までの控え tanks は書き出さない)
@@ -18,7 +20,7 @@ export function makeBackup(stores, { dbVersion, now = Date.now() } = {}) {
   return data;
 }
 
-// chiisana-suiso-2026-09-27.json(端末の日付)
+// yuraginoko-2026-09-27.json(端末の日付)
 export function backupFileName(date = new Date()) {
   const pad = (n) => String(n).padStart(2, '0');
   return `${BACKUP_APP}-${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}.json`;
@@ -59,7 +61,7 @@ export function parseBackup(text) {
   } catch {
     return { ok: false };
   }
-  if (!isRecord(raw) || raw.app !== BACKUP_APP) return { ok: false };
+  if (!isRecord(raw) || !(raw.app === BACKUP_APP || OLD_APPS.includes(raw.app))) return { ok: false };
   if (!Number.isInteger(raw.version) || raw.version < 1 || raw.version > BACKUP_VERSION) return { ok: false };
   const data = migrate(raw);
   for (const name of BACKUP_STORES) {

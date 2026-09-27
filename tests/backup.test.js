@@ -54,13 +54,13 @@ async function fill(names = ['テスト1', 'テスト2']) {
 
 describe('書き出し', () => {
   it('ファイル名はゲーム名と日付', () => {
-    expect(backupFileName(new Date(2026, 8, 27))).toBe('chiisana-suiso-2026-09-27.json');
+    expect(backupFileName(new Date(2026, 8, 27))).toBe('yuraginoko-2026-09-27.json');
   });
 
   it('版と書き出した日時が入る', async () => {
     await fill();
     const data = JSON.parse(toFile(await exportAll()));
-    expect(data.app).toBe('chiisana-suiso');
+    expect(data.app).toBe('yuraginoko');
     expect(data.version).toBe(1);
     expect(data.dbVersion).toBe(DB_VERSION);
     expect(typeof data.exportedAt).toBe('number');
@@ -140,7 +140,7 @@ describe('読み込み', () => {
 
   it('古い版(1人1つの水槽 tanks だけ)のファイルも読み込める', async () => {
     const text = JSON.stringify({
-      app: 'chiisana-suiso',
+      app: 'yuraginoko',
       version: 1,
       personas: [{ id: 'p', name: 'テスト', createdAt: 1, lastOpenedAt: 1 }],
       tanks: [{ personaId: 'p', version: 1, seed: 7, creatures: [{ id: 'c', seed: 1, genes: { hue: 0.5 }, x: 0.4, z: 0.3, heading: 0 }], savedAt: 5 }],
@@ -154,10 +154,21 @@ describe('読み込み', () => {
     expect(Tank.fromData(rec).creatures).toHaveLength(1);
   });
 
+  it('前のアプリ名(ちいさな水槽)で書き出したファイルも読み込める', async () => {
+    await fill();
+    const before = await exportAll();
+    const text = JSON.stringify({ ...JSON.parse(toFile(before)), app: 'chiisana-suiso' });
+    await wipe();
+    const parsed = parseBackup(text);
+    expect(parsed.ok).toBe(true);
+    await importAll(parsed.data, 'merge');
+    expect(sorted(await exportAll())).toEqual(sorted(before));
+  });
+
   it('持ち主のいないものは外す', () => {
     const parsed = parseBackup(
       JSON.stringify({
-        app: 'chiisana-suiso',
+        app: 'yuraginoko',
         version: 1,
         personas: [{ id: 'p', name: 'テスト' }],
         aquaria: [{ id: 't1', personaId: 'p' }, { id: 't2', personaId: 'nobody' }],
@@ -168,7 +179,7 @@ describe('読み込み', () => {
 });
 
 describe('読み込めないファイル', () => {
-  const good = { app: 'chiisana-suiso', version: 1, personas: [{ id: 'p', name: 'テスト' }] };
+  const good = { app: 'yuraginoko', version: 1, personas: [{ id: 'p', name: 'テスト' }] };
   const bad = {
     'JSON でない': 'これはファイルではありません',
     'ほかのもの': JSON.stringify({ ...good, app: 'something-else' }),
